@@ -11,6 +11,9 @@ pub struct Config {
 
     #[clap(long, default_value = "9.81")]
     pub gravity: f64, 
+
+    #[clap(long, default_value = "20")]
+    pub window_size: usize, 
 }
 
 #[derive(Parser)]
@@ -20,3 +23,6 @@ struct Args {
   #[clap(flatten)]
   config: Config,
 }
+
+
+

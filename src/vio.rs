@@ -4,6 +4,7 @@ use ndarray as nd;
 use rerun::{RecordingStream, RecordingStreamBuilder}; 
 
 use crate::dataset::*; 
+use crate::kalman_filter;
 use crate::my_types::*; 
 use crate::kalman_filter::*; 
 
@@ -14,18 +15,22 @@ pub struct VIO {
     last_acc: Option<(f64, Vector3d)>,
     recorder: RecordingStream,
     orientation_initialized: bool,  
+    kalman_filter: KalmanFilter,
 }
 
 impl VIO {
     pub fn new() -> Self {
         // visualization 
         let recorder = RecordingStreamBuilder::new("msckf").save("./logs/my_recording.rrd").unwrap();
+        let kalman_filter = KalmanFilter::new(); 
+
         Self {
             last_time: None, 
             last_acc: None, 
             last_gyro: None, 
             recorder,  
             orientation_initialized: false, 
+            kalman_filter, 
         }
     }
 

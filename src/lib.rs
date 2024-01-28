@@ -5,3 +5,4 @@ pub mod my_types;
 pub mod vio; 
 pub mod kalman_filter; 
 pub mod config; 
+pub mod math; 
