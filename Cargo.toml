@@ -1,5 +1,5 @@
 [package]
-name = "vins-rust"
+name = "msckf-rust"
 version = "0.1.0"
 edition = "2021"
 
@@ -11,6 +11,7 @@ opencv = { version = "0.85.3", features = ["clang-runtime"] }
 nalgebra = "0.30"
 ndarray = "0.15"
 rerun = "0.11.0"
+clap = { version = "3", features = ["derive"] }
 
 # Deserialization.
 serde = { version = "1", features = ["derive"] }

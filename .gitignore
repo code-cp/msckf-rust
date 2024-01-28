@@ -2,3 +2,4 @@ data/
 target/
 .DS_store 
 logs/
+wget-log

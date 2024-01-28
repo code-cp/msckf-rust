@@ -1,17 +1,22 @@
 use std::path::Path;
 use anyhow::{anyhow, bail, Result, Context as AnyhowContext}; 
-use rerun::RecordingStreamBuilder;
 use ndarray as nd; 
 
-use vins_rust::dataset::*; 
+use msckf_rust::dataset::*; 
+use msckf_rust::vio::VIO;
+use msckf_rust::config::*; 
 
 fn main() -> Result<()> {
-    // visualization 
-    let rec = RecordingStreamBuilder::new("vins").save("./logs/my_recording.rrd")?;
+    // parse the config 
+    let args = Args::parse();
+    CONFIG.set(args.config);
 
     // load dataset 
-    let dataset_folder_path = Path::new("./data/benchmark/euroc/v1-01-easy");
+    let dataset_folder_path = Path::new(&args.input_folder);
     let mut dataset = Dataset::new(&dataset_folder_path)?; 
+
+    // create vio 
+    let mut vio = VIO::new();
 
     loop {
         if let Ok(data) = dataset.next() {
@@ -21,23 +26,7 @@ fn main() -> Result<()> {
             }
 
             let data = data.unwrap();
-            // println!("Got sensor data at time: {:?}", data.time);
-            match data.sensor {
-                InputSensor::Frame(ref frame) => {
-                    // check the image size of stereo images 
-                    assert!(frame.images[0].width > 0 && frame.images[0].height > 0);
-                    assert!(frame.images[1].width > 0 && frame.images[1].height > 0);
-
-                    let image0_nd = nd::Array::from_shape_vec(
-                        (frame.images[0].height, frame.images[0].width), 
-                        frame.images[0].clone().data,  
-                    ).unwrap();
-
-                    let image0_rerun = rerun::Image::try_from(image0_nd.clone())?;
-                    rec.log("world/camera/image", &image0_rerun)?;
-                }, 
-                _ => {}, 
-            }
+            vio.process_data(&data)?; 
         }
     }
 }
