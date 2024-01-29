@@ -23,3 +23,30 @@ pub fn to_rotation_matrix(q: Vector4d) -> Matrix3d {
         2.*q[1]*q[3] - 2.*q[0]*q[2], 2.*q[2]*q[3] + 2.*q[0]*q[1], q[0]*q[0] - q[1]*q[1] - q[2]*q[2] + q[3]*q[3],
       )
 }
+
+/// Derivatives of the rotation matrix w.r.t. the quaternion 
+/// TODO how to derive 
+pub fn drot_mat_dq(q: Vector4d) -> [Matrix3d; 4] {
+    [
+      Matrix3d::new(
+        2. * q[0], -2. * q[3],  2. * q[2],
+        2. * q[3],  2. * q[0], -2. * q[1],
+        -2. * q[2],  2. * q[1],  2. * q[0],
+      ),
+      Matrix3d::new(
+        2. * q[1],  2. * q[2],  2. * q[3],
+        2. * q[2], -2. * q[1], -2. * q[0],
+        2. * q[3],  2. * q[0], -2. * q[1],
+      ),
+      Matrix3d::new(
+        -2. * q[2],  2. * q[1],  2. * q[0],
+        2. * q[1],  2. * q[2],  2. * q[3],
+        -2. * q[0],  2. * q[3], -2. * q[2],
+      ),
+      Matrix3d::new(
+        -2. * q[3], -2. * q[0],  2. * q[1],
+        2. * q[0], -2. * q[3],  2. * q[2],
+        2. * q[1],  2. * q[2],  2. * q[3],
+      ),
+    ]
+}

@@ -7,3 +7,4 @@ pub type Vectord = nalgebra::DVector::<f64>;
 pub type Matrixd = nalgebra::DMatrix::<f64>; 
 pub type Matrix3d = nalgebra::Matrix3::<f64>;
 pub type Matrix4d = nalgebra::Matrix4::<f64>;
+pub type Matrix34d = nalgebra::Matrix3x4::<f64>;

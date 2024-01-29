@@ -1,4 +1,5 @@
-use nalgebra as na; 
+use nalgebra as na;
+use opencv::core::Mat; 
 
 use crate::my_types::*; 
 use crate::config::*;
@@ -37,12 +38,6 @@ pub struct KalmanFilter {
 
 impl KalmanFilter {
     pub fn new() -> Self {
-        let set_diagonal_from_noise = | x: &mut Matrixd, start, len: usize, std_value: f64| {
-            for i in start..(start + len) {
-                x[(i, i)] = std_value.powi(2); 
-            }
-        };
-
         let config = CONFIG.get().unwrap(); 
 
         let gravity = Vector3d::new(0., 0., -config.gravity);
@@ -51,6 +46,12 @@ impl KalmanFilter {
         let state_len = 6;
         let state = na::DVector::zeros(state_len);
         let state_cov = na::DMatrix::zeros(state_len, state_len); 
+
+        let set_diagonal_from_noise = | x: &mut Matrixd, start, len: usize, std_value: f64| {
+            for i in start..(start + len) {
+                x[(i, i)] = std_value.powi(2); 
+            }
+        };
 
         Self {
             state, 
@@ -152,8 +153,40 @@ impl KalmanFilter {
         let vel_new = self.get_velocity() + (i_r_w.transpose() * acc + self.gravity) * dt;
         self.state.fixed_slice_mut::<3, 1>(F_VEL, 0).copy_from(&vel_new); 
 
+    }
+
+    pub fn construct_f_mat(&self, dt: f64, acc: &Vector3d, gyro: &Vector3d, omega: &Matrix4d) -> Matrixd {
         // Compute discrete transition and noise covariance matrix
         let mut f_mat: Matrixd = Matrixd::zeros(F_SIZE, F_SIZE); 
+        let i3 = Matrix3d::identity(); 
 
+        f_mat.fixed_slice_mut::<3, 3>(F_POS, F_POS).copy_from(&i3); 
+        f_mat.fixed_slice_mut::<3, 3>(F_VEL, F_VEL).copy_from(&i3); 
+        f_mat.fixed_slice_mut::<3, 3>(F_BGA, F_BGA).copy_from(&i3);
+        f_mat.fixed_slice_mut::<3, 3>(F_BAA, F_BAA).copy_from(&i3); 
+
+        // Derivatives of the velocity w.r.t. to the quaternion
+        // TODO figure out derivation 
+        let last_q: Vector4d = self.get_camera_rotation(0).into(); 
+        let dr_dq = drot_mat_dq(last_q); 
+        let mut y = Matrix34d::zeros(); 
+        for i in 0..4 {
+            y.fixed_slice_mut::<3, 1>(0, i).copy_from(&(dt * dr_dq[i].transpose() * acc));
+        }
+        // omega is the derivative of q dot wrt q, ref juan sola eq 200 
+        f_mat.fixed_slice_mut::<3, 4>(F_VEL, F_ROT).copy_from(&(y * omega));
+
+        // Derivatives of the quaternion w.r.t. itself
+        f_mat.fixed_slice_mut::<4, 4>(F_ROT, F_ROT).copy_from(&omega);
+
+        // Derivatives of the velocity w.r.t. to the gyro bias
+        
+
+        // Derivatives of the velocity w.r.t the acc. bias
+        let i_r_w: Matrix3d = to_rotation_matrix(last_q);
+        f_mat.fixed_slice_mut::<3, 3>(F_VEL, F_BAA).copy_from(&(-dt * i_r_w.transpose()));
+
+        f_mat
     }
+
 }
