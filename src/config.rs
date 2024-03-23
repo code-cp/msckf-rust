@@ -14,15 +14,21 @@ pub struct Config {
 
     #[clap(long, default_value = "20")]
     pub window_size: usize, 
+
+    #[clap(long, default_value = "1e-2")]
+    pub acc_var: f64,
+
+    #[clap(long, default_value = "1e-5")]
+    pub gyro_var: f64,
+
+    #[clap(long, default_value = "1e-6")]
+    pub bias_gyro_var: f64,
+
+    #[clap(long, default_value = "1e-4")]
+    pub bias_acc_var: f64,
 }
 
-#[derive(Parser)]
-struct Args {
-  #[clap(short, default_value = "./data/benchmark/euroc/v1-01-easy")]
-  input_folder: String,
-  #[clap(flatten)]
-  config: Config,
-}
+
 
 
 

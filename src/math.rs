@@ -3,7 +3,7 @@ use nalgebra as na;
 use crate::my_types::*; 
 
 /// slam book eq. 2.4 
-pub fn skew(v: na::Vector3<f64>) -> Matrix3d {
+pub fn skew(v: &na::Vector3<f64>) -> Matrix3d {
     let mut ss = Matrix3d::zeros();
     ss[(0, 1)] = -v[2];
     ss[(0, 2)] = v[1];
@@ -49,4 +49,13 @@ pub fn drot_mat_dq(q: Vector4d) -> [Matrix3d; 4] {
         2. * q[1],  2. * q[2],  2. * q[3],
       ),
     ]
+}
+
+pub fn so3_exp(phi: &Vector3d) -> Matrix3d {
+    let theta = phi.norm();
+    let n = phi / theta; 
+    let exp_phi_skew = theta.cos() * Matrix3d::identity() 
+        + (1.0 - theta.cos()) * n * n.transpose() 
+        + theta.sin() * skew(n); 
+    exp_phi_skew 
 }

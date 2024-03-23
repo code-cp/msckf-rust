@@ -1,51 +1,43 @@
 use nalgebra as na;
-use opencv::core::Mat; 
 
 use crate::my_types::*; 
 use crate::config::*;
 use crate::math::*;
 
-const CAM_POS: usize = 0;
-const CAM_ROT: usize = 3;
-const CAM_SIZE: usize = 7;
-
-const F_VEL: usize = 0; // Velocity.
-const F_BGA: usize = 3; // [B]ias [G]yroscope [A]dditive.
-const F_BAA: usize = 6; // [B]ias [A]ccelerometer [A]dditive.
-
-// first camera pose 
-const CAM0: usize = 9; // Start of camera poses. The most recent comes first.
-const F_POS: usize = CAM0;
-const F_ROT: usize = CAM0 + CAM_ROT;
-const F_SIZE: usize = CAM0 + CAM_SIZE;
-
-// Prediction noise.
-const Q_A: usize = 0; // Accelerometer.
-const Q_G: usize = 3; // Gyroscope.
-const Q_BGA: usize = 6; // BGA drift.
-const Q_BAA: usize = 9; // BAA drift.
-const Q_SIZE: usize = 12;
-
-pub struct KalmanFilter {
-    state: Vectord, 
+pub struct ESKF {
+    /// position 
+    p: Vector3d,
+    /// velocity 
+    v: Vector3d,
+    /// rotation matrix 
+    rot: Matrix3d,
+    /// gyro bias  
+    bg: Vector3d, 
+    /// acc bias 
+    ba: Vector3d,
     state_len: usize, 
+    // noise matrix 
+    q_mat: Matrixd, 
+    // covariance matrix  
     state_cov: Matrixd, 
-
     gravity: Vector3d, 
     window_size: usize, 
     last_time: Option<f64>, 
+    is_initialized: bool, 
 }
 
-impl KalmanFilter {
+impl ESKF {
     pub fn new() -> Self {
         let config = CONFIG.get().unwrap(); 
 
         let gravity = Vector3d::new(0., 0., -config.gravity);
         let window_size = config.window_size;
 
-        let state_len = 6;
-        let state = na::DVector::zeros(state_len);
-        let state_cov = na::DMatrix::zeros(state_len, state_len); 
+        // state is p, v, R, bg, ba, g 
+        // so len is 3 x 6 = 18 
+        let state_len = 18; 
+        let state_cov = Matrixd::zeros(state_len, state_len); 
+        let q_mat = Matrixd::zeros(state_len, state_len); 
 
         let set_diagonal_from_noise = | x: &mut Matrixd, start, len: usize, std_value: f64| {
             for i in start..(start + len) {
@@ -54,34 +46,34 @@ impl KalmanFilter {
         };
 
         Self {
-            state, 
-            state_len,
+            p: Vector3d::zeros(), 
+            v: Vector3d::zeros(),
+            rot: Matrix3d::identity(),
+            bg: Vector3d::zeros(), 
+            ba: Vector3d::zeros(),
             state_cov, 
-
+            q_mat, 
+            state_len, 
             gravity, 
             window_size, 
             last_time: None, 
+            is_initialized: false, 
         }
     }
 
-    pub fn get_velocity(&self) -> Vector3d {
-        self.state.fixed_slice::<3, 1>(F_VEL, 0).into()
-    }
+    pub fn initialize_q(&mut self) {
+        let config = CONFIG.get().unwrap();  
 
-    pub fn get_bga(&self) -> Vector3d {
-        self.state.fixed_slice::<3, 1>(F_BGA, 0).into()
-    }
+        let set_diagonal = |x: &mut Matrixd, start: usize, len: usize, value: f64| {
+            for i in start..(start + len) {
+              x[(i, i)] = value.powi(2);
+            }
+          };
 
-    pub fn get_baa(&self) -> Vector3d {
-        self.state.fixed_slice::<3, 1>(F_BAA, 0).into()
-    }
-
-    pub fn get_camera_position(&self, index: usize) -> Vector3d {
-        self.state.fixed_slice::<3,1>(CAM0 + index * CAM_SIZE + CAM_POS, 0).into()
-    }
-
-    pub fn get_camera_rotation(&self, index: usize) -> Vector4d {
-        self.state.fixed_slice::<4, 1>(CAM0 + index * CAM_SIZE + CAM_ROT, 0).into()
+        set_diagonal(&mut self.q_mat, 9, 3, config.acc_var); 
+        set_diagonal(&mut self.q_mat, 12, 3, config.gyro_var); 
+        set_diagonal(&mut self.q_mat, 15, 3, config.bias_gyro_var);
+        set_diagonal(&mut self.q_mat, 18, 3, config.bias_acc_var); 
     }
 
     /// Initialize orientation based on the first accelometer sample.
@@ -102,8 +94,10 @@ impl KalmanFilter {
         // quaternion is represented by wxyz 
         // Hamilton convention
         // from world to IMU 
-        self.state[F_ROT] = w; 
-        self.state.fixed_slice_mut::<3, 1>(F_ROT + 1, 0).copy_from(&xyz); 
+        // in the order (w, i, j, k)
+        let q = na::Quaternion::new(w, xyz[(0, 0)], xyz[(1, 0)], xyz[(2, 0)]); 
+        let q = na::UnitQuaternion::from_quaternion(q);
+        self.rot = q.to_rotation_matrix().into(); 
     }
 
     /// ref stereo msckf processModel
@@ -113,9 +107,11 @@ impl KalmanFilter {
         gyro: Vector3d, 
         acc: Vector3d, 
     ) {
-        // initialize the orientation 
-        if self.get_camera_rotation(0) == Vector3d::zeros() {
+        // initialize the orientation and Q
+        if !self.is_initialized {
             self.initialize_orientation(acc);
+            self.initialize_q();
+            self.is_initialized = true; 
         }
 
         // update dt 
@@ -124,67 +120,43 @@ impl KalmanFilter {
         if dt <= 0. { return; }
 
         // remove the bias 
-        let gyro = gyro - self.get_bga(); 
-        let acc = acc - self.get_baa(); 
+        let gyro = gyro - self.bg; 
+        let acc = acc - self.ba; 
 
         // update imu position 
-        let pos_new = self.get_camera_position(0) + self.get_velocity() * dt; 
-        self.state.fixed_slice_mut::<3, 1>(F_POS, 0).copy_from(&pos_new); 
-
-        // update imu orientation
-        // ref to notes 
-        // ref https://ahrs.readthedocs.io/en/latest/filters/angular.html
-        // ref https://faculty.sites.iastate.edu/jia/files/inline-files/quaternion.pdf
-        let mut omega = Matrix4d::zeros();
-        omega.fixed_slice_mut::<3, 3>(1, 1).copy_from(&(-skew(gyro)));
-        omega.fixed_slice_mut::<3, 1>(1, 0).copy_from(&gyro);
-        omega.fixed_slice_mut::<1, 3>(0, 1).copy_from(&(-gyro.transpose()));
-        // -0.5 instead of 0.5, because rotation is defined from world to imu 
-        // not from imu to world 
-        // ie still a local perturbation, but q is different 
-        let omega = -0.5 * dt * omega.exp(); 
-        let rot_new = omega * self.get_camera_rotation(0); 
-        self.state.fixed_slice_mut::<4, 1>(F_ROT, 0).copy_from(&rot_new); 
+        let new_p = self.p + self.v * dt + 0.5 * (self.rot * acc) * dt.powi(2) + 0.5 * self.gravity * dt.powi(2);  
 
         // update imu velocity 
-        let last_q: Vector4d = self.get_camera_rotation(0).into(); 
-        // from world to IMU 
-        let i_r_w: Matrix3d = to_rotation_matrix(last_q);
-        let vel_new = self.get_velocity() + (i_r_w.transpose() * acc + self.gravity) * dt;
-        self.state.fixed_slice_mut::<3, 1>(F_VEL, 0).copy_from(&vel_new); 
+        let new_v = self.v + self.rot * acc * dt + self.gravity * dt; 
 
+        // update imu orientation
+        let new_rot = self.rot * so3_exp(&(gyro * dt));
+
+        self.rot = new_rot; 
+        self.v = new_v; 
+        self.p = new_p; 
+
+        let f_mat = self.construct_f_mat(dt, &acc, &gyro);
+        self.state_cov = f_mat * self.state_cov * f_mat.transpose() + self.q_mat; 
     }
 
-    pub fn construct_f_mat(&self, dt: f64, acc: &Vector3d, gyro: &Vector3d, omega: &Matrix4d) -> Matrixd {
+    pub fn construct_f_mat(&self, dt: f64, acc: &Vector3d, gyro: &Vector3d) -> Matrixd {
         // Compute discrete transition and noise covariance matrix
-        let mut f_mat: Matrixd = Matrixd::zeros(F_SIZE, F_SIZE); 
+        let mut f_mat: Matrixd = Matrixd::identity(self.state_len, self.state_len); 
         let i3 = Matrix3d::identity(); 
 
-        f_mat.fixed_slice_mut::<3, 3>(F_POS, F_POS).copy_from(&i3); 
-        f_mat.fixed_slice_mut::<3, 3>(F_VEL, F_VEL).copy_from(&i3); 
-        f_mat.fixed_slice_mut::<3, 3>(F_BGA, F_BGA).copy_from(&i3);
-        f_mat.fixed_slice_mut::<3, 3>(F_BAA, F_BAA).copy_from(&i3); 
-
-        // Derivatives of the velocity w.r.t. to the quaternion
-        // TODO figure out derivation 
-        let last_q: Vector4d = self.get_camera_rotation(0).into(); 
-        let dr_dq = drot_mat_dq(last_q); 
-        let mut y = Matrix34d::zeros(); 
-        for i in 0..4 {
-            y.fixed_slice_mut::<3, 1>(0, i).copy_from(&(dt * dr_dq[i].transpose() * acc));
-        }
-        // omega is the derivative of q dot wrt q, ref juan sola eq 200 
-        f_mat.fixed_slice_mut::<3, 4>(F_VEL, F_ROT).copy_from(&(y * omega));
-
-        // Derivatives of the quaternion w.r.t. itself
-        f_mat.fixed_slice_mut::<4, 4>(F_ROT, F_ROT).copy_from(&omega);
-
-        // Derivatives of the velocity w.r.t. to the gyro bias
-        
-
-        // Derivatives of the velocity w.r.t the acc. bias
-        let i_r_w: Matrix3d = to_rotation_matrix(last_q);
-        f_mat.fixed_slice_mut::<3, 3>(F_VEL, F_BAA).copy_from(&(-dt * i_r_w.transpose()));
+        // p wrt v 
+        f_mat.fixed_slice_mut::<3, 3>(0, 3).copy_from(&(i3 * dt)); 
+        // v wrt theta 
+        f_mat.fixed_slice_mut::<3, 3>(3, 6).copy_from(&(-self.rot * skew(acc) * dt)); 
+        // v wrt ba 
+        f_mat.fixed_slice_mut::<3, 3>(3, 12).copy_from(&(-self.rot * dt));
+        // v wrt g 
+        f_mat.fixed_slice_mut::<3, 3>(3, 15).copy_from(&(i3 * dt));
+        // theta wrt theta 
+        f_mat.fixed_slice_mut::<3, 3>(6, 6).copy_from(&(so3_exp(&(-gyro*dt))));
+        // theta vs bg 
+        f_mat.fixed_slice_mut::<3, 3>(6, 9).copy_from(&(-i3*dt)); 
 
         f_mat
     }

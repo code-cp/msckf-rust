@@ -2,14 +2,24 @@ use std::path::Path;
 use anyhow::{anyhow, bail, Result, Context as AnyhowContext}; 
 use ndarray as nd; 
 
+use clap::Parser;
+
 use msckf_rust::dataset::*; 
 use msckf_rust::vio::VIO;
 use msckf_rust::config::*; 
 
+#[derive(Parser)]
+pub struct Args {
+  #[clap(short, default_value = "./data/benchmark/euroc/v1-01-easy")]
+  pub input_folder: String,
+  #[clap(flatten)]
+  pub config: Config,
+}
+
 fn main() -> Result<()> {
     // parse the config 
     let args = Args::parse();
-    CONFIG.set(args.config);
+    let _ = CONFIG.set(args.config);
 
     // load dataset 
     let dataset_folder_path = Path::new(&args.input_folder);
