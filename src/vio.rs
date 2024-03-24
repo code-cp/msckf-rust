@@ -14,14 +14,14 @@ pub struct VIO {
     last_acc: Option<(f64, Vector3d)>,
     recorder: RecordingStream,
     orientation_initialized: bool,  
-    kalman_filter: ESKF,
+    imu_state: StateServer,
 }
 
 impl VIO {
     pub fn new() -> Self {
         // visualization 
         let recorder = RecordingStreamBuilder::new("msckf").save("./logs/my_recording.rrd").unwrap();
-        let kalman_filter = ESKF::new(); 
+        let imu_state = StateServer::new(); 
 
         Self {
             last_time: None, 
@@ -29,7 +29,7 @@ impl VIO {
             last_gyro: None, 
             recorder,  
             orientation_initialized: false, 
-            kalman_filter, 
+            imu_state, 
         }
     }
 
@@ -82,6 +82,6 @@ impl VIO {
     }
 
     pub fn process_imu(&mut self, time: f64, gyro: Vector3d, acc: Vector3d) {
-        self.kalman_filter.predict(time, gyro, acc); 
+        self.imu_state.predict(time, gyro, acc); 
     }
 }
