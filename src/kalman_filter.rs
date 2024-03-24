@@ -1,6 +1,5 @@
 use nalgebra as na;
 use std::collections::HashMap;
-use std::hash::Hash;
 
 use crate::config::*;
 use crate::math::*;
@@ -10,9 +9,6 @@ static STATE_LEN: usize = 21;
 
 pub struct CameraState {
     id: usize,
-    // Takes a vector from the cam0 frame to the cam1 frame
-    r_cam0_cam1: Matrix3d,
-    t_cam0_cam1: Matrix3d,
     // Take a vector from the camera frame to world frame
     orientation: Matrix3d,
     position: Vector3d,
@@ -32,6 +28,9 @@ pub struct StateServer {
     /// transformation between IMU and left camera frame
     r_imu_cam0: Matrix3d,
     t_cam0_imu: Vector3d,
+    // Takes a vector from the cam0 frame to the cam1 frame
+    r_cam0_cam1: Matrix3d,
+    t_cam0_cam1: Vector3d,
     // noise matrix
     q_mat: Matrixd,
     // covariance matrix
@@ -41,6 +40,7 @@ pub struct StateServer {
     last_time: Option<f64>,
     is_initialized: bool,
     camera_states: HashMap<usize, CameraState>,
+    state_id: usize,
 }
 
 impl StateServer {
@@ -55,14 +55,62 @@ impl StateServer {
         let state_cov = Matrixd::zeros(STATE_LEN, STATE_LEN);
         let q_mat = Matrixd::zeros(STATE_LEN, STATE_LEN);
 
+        // T_imu_cam: takes a vector from the IMU frame to the cam frame.
+        // T_cn_cnm1: takes a vector from the cam0 frame to the cam1 frame.
+        // see https://github.com/ethz-asl/kalibr/wiki/yaml-formats
+        let trans_imu_cam0 = Matrix4d::new(
+            0.014865542981794,
+            0.999557249008346,
+            -0.025774436697440,
+            0.065222909535531,
+            -0.999880929698575,
+            0.014967213324719,
+            0.003756188357967,
+            -0.020706385492719,
+            0.004140296794224,
+            0.025715529947966,
+            0.999660727177902,
+            -0.008054602460030,
+            0.0,
+            0.0,
+            0.0,
+            1.000000000000000,
+        );
+        let r_imu_cam0 = trans_imu_cam0.fixed_slice::<3, 3>(0, 0);
+        let trans_cam0_imu = trans_imu_cam0.try_inverse().unwrap();
+        let t_cam0_imu = trans_cam0_imu.fixed_slice::<3, 1>(0, 3);
+
+        let trans_cam0_cam1 = Matrix4d::new(
+            0.999997256477881,
+            0.002312067192424,
+            0.000376008102415,
+            -0.110073808127187,
+            -0.002317135723281,
+            0.999898048506644,
+            0.014089835846648,
+            0.000399121547014,
+            -0.000343393120525,
+            -0.014090668452714,
+            0.999900662637729,
+            -0.000853702503357,
+            0.0,
+            0.0,
+            0.0,
+            1.000000000000000,
+        );
+        let r_cam0_cam1 = trans_cam0_cam1.fixed_slice::<3, 3>(0, 0);
+        let t_cam0_cam1 = trans_cam0_cam1.fixed_slice::<3, 1>(0, 3);
+
         Self {
             p: Vector3d::zeros(),
             v: Vector3d::zeros(),
             rot: Matrix3d::identity(),
             bg: Vector3d::zeros(),
             ba: Vector3d::zeros(),
-            r_imu_cam0: Matrix3d::identity(),
-            t_cam0_imu: Vector3d::zeros(),
+            r_imu_cam0: r_imu_cam0.into(),
+            t_cam0_imu: t_cam0_imu.into(),
+            r_cam0_cam1: r_cam0_cam1.into(),
+            t_cam0_cam1: t_cam0_cam1.into(),
             state_cov,
             q_mat,
             gravity,
@@ -70,6 +118,7 @@ impl StateServer {
             last_time: None,
             is_initialized: false,
             camera_states: HashMap::new(),
+            state_id: 0,
         }
     }
 
@@ -114,6 +163,8 @@ impl StateServer {
 
     /// ref stereo msckf processModel
     pub fn predict(&mut self, time: f64, gyro: Vector3d, acc: Vector3d) {
+        self.state_id += 1;
+
         // initialize the orientation and Q
         if !self.is_initialized {
             self.initialize_orientation(acc);
@@ -163,12 +214,17 @@ impl StateServer {
                 * self
                     .state_cov
                     .slice((0, 21), (21, self.state_cov.ncols() - 21));
-            self.state_cov.slice_mut((0, 21), (21, self.state_cov.ncols() - 21)).copy_from(&cov_slice); 
+            self.state_cov
+                .slice_mut((0, 21), (21, self.state_cov.ncols() - 21))
+                .copy_from(&cov_slice);
 
             let cov_slice = self
-                    .state_cov
-                    .slice((21, 0), (self.state_cov.nrows() - 21, 21)) * f_mat.transpose();
-            self.state_cov.slice_mut((21, 0), (self.state_cov.nrows() - 21, 21)).copy_from(&cov_slice);  
+                .state_cov
+                .slice((21, 0), (self.state_cov.nrows() - 21, 21))
+                * f_mat.transpose();
+            self.state_cov
+                .slice_mut((21, 0), (self.state_cov.nrows() - 21, 21))
+                .copy_from(&cov_slice);
         }
     }
 
@@ -197,5 +253,77 @@ impl StateServer {
         f_mat.fixed_slice_mut::<3, 3>(6, 3).copy_from(&(i3 * dt));
 
         f_mat
+    }
+
+    pub fn augment_state(&mut self) {
+        let c_r_i = self.r_imu_cam0.clone();
+        let i_p_c = self.t_cam0_imu.clone();
+
+        let w_r_i = self.rot.clone();
+        let w_p_i = self.p.clone();
+        let w_r_c = w_r_i * c_r_i.transpose();
+        let w_p_c = w_p_i + w_r_i * i_p_c;
+
+        let camera_state = CameraState {
+            id: self.state_id,
+            orientation: w_r_c,
+            position: w_p_c,
+        };
+
+        self.camera_states.insert(self.state_id, camera_state);
+
+        let dcampose_dimupose =
+            self.get_cam_wrt_imu_se3_jacobian(&c_r_i, &i_p_c, &w_r_c.transpose());
+        let mut jacobian = Matrixd::zeros(6, STATE_LEN);
+        jacobian
+            .fixed_slice_mut::<3, 3>(0, 0)
+            .copy_from(&dcampose_dimupose.fixed_slice::<3, 3>(0, 0));
+        jacobian
+            .fixed_slice_mut::<3, 3>(0, 6)
+            .copy_from(&dcampose_dimupose.fixed_slice::<3, 3>(0, 3));
+        jacobian
+            .fixed_slice_mut::<3, 3>(3, 0)
+            .copy_from(&dcampose_dimupose.fixed_slice::<3, 3>(3, 0));
+        jacobian
+            .fixed_slice_mut::<3, 3>(3, 6)
+            .copy_from(&dcampose_dimupose.fixed_slice::<3, 3>(3, 3));
+        jacobian
+            .fixed_slice_mut::<3, 3>(0, 15)
+            .copy_from(&Matrix3d::identity());
+        jacobian
+            .fixed_slice_mut::<3, 3>(3, 18)
+            .copy_from(&Matrix3d::identity());
+
+        let old_size = self.state_cov.nrows();
+        let mut state_cov = Matrixd::zeros(old_size + 6, old_size + 6);
+        state_cov
+            .slice_mut((0, 0), (old_size, old_size))
+            .copy_from(&self.state_cov);
+        let block = jacobian * self.state_cov.slice((0, 0), (21, old_size));
+        state_cov
+            .slice_mut((old_size, 0), (6, old_size))
+            .copy_from(&block);
+        state_cov
+            .slice_mut((0, old_size), (old_size, 6))
+            .copy_from(&(block.transpose()));
+        state_cov.slice_mut((old_size, old_size), (6, 6)).copy_from(&(
+            jacobian * self.state_cov.fixed_slice::<21, 21>(0, 0) * jacobian.transpose()
+        ));
+        self.state_cov = state_cov; 
+    }
+
+    fn get_cam_wrt_imu_se3_jacobian(
+        &self,
+        c_r_i: &Matrix3d,
+        i_p_c: &Vector3d,
+        c_r_w: &Matrix3d,
+    ) -> na::Matrix6<f64> {
+        let mut p_cxi_p_ixi = na::Matrix6::<f64>::zeros();
+        p_cxi_p_ixi
+            .fixed_slice_mut::<3, 3>(0, 0)
+            .copy_from(&(-1.0 * c_r_i * skew(i_p_c)));
+        p_cxi_p_ixi.fixed_slice_mut::<3, 3>(3, 0).copy_from(c_r_i);
+        p_cxi_p_ixi.fixed_slice_mut::<3, 3>(0, 3).copy_from(c_r_w);
+        p_cxi_p_ixi
     }
 }

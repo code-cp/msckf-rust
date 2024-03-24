@@ -69,6 +69,10 @@ impl VIO {
             }
         }
 
+        // Very basic sample synchronization that only aims to cover the case that
+        // the gyroscope and accelerometer samples are already paired one-to-one in
+        // the input data, but it's not known if the accelerometer or gyroscope
+        // sample comes first in the stream.
         if let (Some((time_gyro, gyro)), Some((time_acc, acc))) = (self.last_gyro, self.last_acc) {
             if time_acc >= time_gyro {
                 self.process_imu(time_gyro, gyro, acc); 
