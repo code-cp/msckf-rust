@@ -56,6 +56,6 @@ pub fn so3_exp(phi: &Vector3d) -> Matrix3d {
     let n = phi / theta; 
     let exp_phi_skew = theta.cos() * Matrix3d::identity() 
         + (1.0 - theta.cos()) * n * n.transpose() 
-        + theta.sin() * skew(n); 
+        + theta.sin() * skew(&n); 
     exp_phi_skew 
 }

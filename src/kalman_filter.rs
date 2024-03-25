@@ -7,6 +7,7 @@ use crate::my_types::*;
 
 static STATE_LEN: usize = 21;
 
+#[derive(Debug)]
 pub struct CameraState {
     id: usize,
     // Take a vector from the camera frame to world frame
@@ -14,6 +15,7 @@ pub struct CameraState {
     position: Vector3d,
 }
 
+#[derive(Debug)]
 pub struct StateServer {
     /// position
     p: Vector3d,
@@ -205,12 +207,12 @@ impl StateServer {
 
         let f_mat = self.construct_f_mat(dt, &acc, &gyro);
         let imu_state_cov = self.state_cov.fixed_slice::<21, 21>(0, 0).clone();
+        let temp_block = f_mat.clone() * imu_state_cov * f_mat.clone().transpose();
         self.state_cov.fixed_slice_mut::<21, 21>(0, 0).copy_from(
-            &(f_mat * imu_state_cov * f_mat.transpose()
-                + f_mat * self.q_mat * f_mat.transpose() * dt),
+            &(temp_block + f_mat.clone() * self.q_mat.clone() * f_mat.clone().transpose() * dt),
         );
         if self.camera_states.len() > 0 {
-            let cov_slice = f_mat
+            let cov_slice = f_mat.clone()
                 * self
                     .state_cov
                     .slice((0, 21), (21, self.state_cov.ncols() - 21));
@@ -299,17 +301,17 @@ impl StateServer {
         state_cov
             .slice_mut((0, 0), (old_size, old_size))
             .copy_from(&self.state_cov);
-        let block = jacobian * self.state_cov.slice((0, 0), (21, old_size));
+        let block = jacobian.clone() * self.state_cov.slice((0, 0), (21, old_size));
         state_cov
             .slice_mut((old_size, 0), (6, old_size))
             .copy_from(&block);
         state_cov
             .slice_mut((0, old_size), (old_size, 6))
             .copy_from(&(block.transpose()));
-        state_cov.slice_mut((old_size, old_size), (6, 6)).copy_from(&(
-            jacobian * self.state_cov.fixed_slice::<21, 21>(0, 0) * jacobian.transpose()
-        ));
-        self.state_cov = state_cov; 
+        state_cov.slice_mut((old_size, old_size), (6, 6)).copy_from(
+            &(jacobian.clone() * self.state_cov.fixed_slice::<21, 21>(0, 0) * jacobian.transpose()),
+        );
+        self.state_cov = state_cov;
     }
 
     fn get_cam_wrt_imu_se3_jacobian(

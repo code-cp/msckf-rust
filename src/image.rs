@@ -1,35 +1,34 @@
-
 /// Row-major grayscale image storage
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Image {
-    pub data: Vec<u8>, 
-    pub width: usize, 
-    pub height: usize, 
+    pub data: Vec<u8>,
+    pub width: usize,
+    pub height: usize,
 }
 
 impl Image {
-    /// Create an empty image 
+    /// Create an empty image
     pub fn empty() -> Image {
         Image {
-            data: vec![], 
-            width: 0, 
-            height: 0, 
+            data: vec![],
+            width: 0,
+            height: 0,
         }
     }
 
-    /// Clear the image storage 
+    /// Clear the image storage
     pub fn clear(&mut self) {
-        self.data.clear(); 
-        self.width = 0; 
-        self.height = 0; 
+        self.data.clear();
+        self.width = 0;
+        self.height = 0;
     }
 
-    /// Get the size for a chosen dimension 
+    /// Get the size for a chosen dimension
     pub fn size(&self, dim: usize) -> usize {
         if dim == 0 {
-            self.width 
+            self.width
         } else {
-            self.height 
+            self.height
         }
     }
 
@@ -52,6 +51,6 @@ impl Image {
     #[inline(always)]
     #[cfg(test)]
     pub fn set_value(&mut self, x: usize, y: usize, value: u8) {
-        self.data[y * self.width + x] = value; 
+        self.data[y * self.width + x] = value;
     }
 }

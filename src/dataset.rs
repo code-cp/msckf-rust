@@ -1,109 +1,175 @@
+use anyhow::{anyhow, bail, Context as AnyhowContext, Result};
+use log::{debug, error, info, warn, LevelFilter};
+use serde::Deserialize;
+use serde_json::{from_str, Value};
+use std::fmt;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
-use anyhow::{anyhow, bail, Result, Context as AnyhowContext}; 
-use serde::Deserialize; 
-use log::{debug, error, info, warn, LevelFilter};
 
-use crate::image::Image; 
-use crate::video::VideoInput; 
-use crate::my_types::*; 
+use ffmpeg::format;
+use ffmpeg::media::Type;
+use ffmpeg::media::Type::Video;
+
+use crate::image::Image;
+use crate::my_types::*;
+use crate::video::VideoInput;
 
 pub struct Dataset {
-    reader: BufReader<File>, 
-    line: String, 
-    video_inputs: Vec<VideoInput>, 
+    reader: BufReader<File>,
+    line: String,
+    video_inputs: Vec<VideoInput>,
+    pub length: usize,
 }
 
+#[derive(Debug)]
 pub struct InputFrame<'a> {
-    pub images: Vec<&'a Image>, 
+    pub images: Vec<&'a Image>,
 }
 
+#[derive(Debug)]
 pub enum InputSensor<'a> {
     Gyroscope(Vector3d),
-    Accelerometer(Vector3d), 
-    Frame(InputFrame<'a>), 
+    Accelerometer(Vector3d),
+    Frame(InputFrame<'a>),
 }
 
+#[derive(Debug)]
 pub struct SensorData<'a> {
-    pub time: f64, 
-    pub sensor: InputSensor<'a>, 
+    pub time: f64,
+    pub sensor: InputSensor<'a>,
+}
+
+fn get_groundtruth(file: &File) -> usize {
+    let reader = BufReader::new(file);
+    let mut total_items = 0;
+    for line in reader.lines() {
+        if let Ok(line) = line {
+            if let Ok(json) = from_str::<Value>(&line) {
+                if let Some(_ground_truth) = json.get("groundTruth") {
+                    total_items += 1;
+                }
+            }
+        }
+    }
+    total_items
+}
+
+fn get_total_frames(path: &Path) -> usize {
+    // Initialize the ffmpeg library
+    ffmpeg::init().unwrap();
+
+    // Open the input file
+    let mut ictx = format::input(&path).unwrap();
+
+    // Find the video stream
+    let video_stream_index = ictx
+        .streams()
+        .enumerate()
+        .find_map(|(index, stream)| {
+            if stream.codec().medium() == Type::Video {
+                Some(index)
+            } else {
+                None
+            }
+        })
+        .unwrap();
+
+    // Get the number of frames in the video stream
+    let num_frames = ictx.streams()[video_stream_index].frames();
+
+    num_frames
 }
 
 impl Dataset {
     pub fn new(path: &Path) -> Result<Dataset> {
-        let file: File = File::open(path.join("data.jsonl"))?; 
+        let file: File = File::open(path.join("data.jsonl"))?;
+
         let video_inputs = vec![
             VideoInput::new(&path.join("data.mp4"))?,
             VideoInput::new(&path.join("data2.mp4"))?,
-          ];
-          Ok(Dataset {
+        ];
+
+        let length = get_total_frames(&path.join("data.mp4"));
+
+        Ok(Dataset {
             reader: BufReader::new(file),
             line: String::new(),
             video_inputs,
-          })
+            length,
+        })
     }
 
     pub fn next(&mut self) -> Result<Option<SensorData>> {
         loop {
-            self.line.clear(); 
+            self.line.clear();
             match self.reader.read_line(&mut self.line) {
-                Ok(0) => return Ok(None), 
-                Err(err) => bail!("Failed to read line {}", err), 
-                _ => {}, 
+                Ok(0) => return Ok(None),
+                Err(err) => bail!("Failed to read line {}", err),
+                _ => {}
             }
 
-            let value: serde_json::Value = serde_json::from_str(&self.line)
-                .context(format!("JSON deserialization failed for line: {}", self.line))?;
-            let value = value.as_object().ok_or(anyhow!("JSON line is not a map"))?; 
-            
-            let time = value["time"].as_f64().ok_or(anyhow!("Time is not a number"))?;
+            let value: serde_json::Value = serde_json::from_str(&self.line).context(format!(
+                "JSON deserialization failed for line: {}",
+                self.line
+            ))?;
+            let value = value.as_object().ok_or(anyhow!("JSON line is not a map"))?;
+
+            let time = value["time"]
+                .as_f64()
+                .ok_or(anyhow!("Time is not a number"))?;
 
             if let Some(sensor) = value.get("sensor") {
-                let v = &sensor["values"].as_array().ok_or(anyhow!("Sensor values not an array"))?; 
-                let v: Vec<f64> = v.iter().map(|x| x.as_f64().unwrap()).collect(); 
-                assert!(v.len() >= 3, "Sensor values array must contain at least 3 elements");
-                let v = Vector3d::new(v[0], v[1], v[2]); 
+                let v = &sensor["values"]
+                    .as_array()
+                    .ok_or(anyhow!("Sensor values not an array"))?;
+                let v: Vec<f64> = v.iter().map(|x| x.as_f64().unwrap()).collect();
+                assert!(
+                    v.len() >= 3,
+                    "Sensor values array must contain at least 3 elements"
+                );
+                let v = Vector3d::new(v[0], v[1], v[2]);
 
-                let sensor_type = sensor["type"].as_str().ok_or(anyhow!("Sensor type missing"))?;
+                let sensor_type = sensor["type"]
+                    .as_str()
+                    .ok_or(anyhow!("Sensor type missing"))?;
                 match sensor_type {
-                    "gyroscope" => return Ok(Some(
-                        SensorData {
-                            time, 
-                            sensor: InputSensor::Gyroscope(v), 
-                        }
-                    )),
-                    "accelerometer" => return Ok(Some(
-                        SensorData {
-                            time, 
+                    "gyroscope" => {
+                        return Ok(Some(SensorData {
+                            time,
+                            sensor: InputSensor::Gyroscope(v),
+                        }))
+                    }
+                    "accelerometer" => {
+                        return Ok(Some(SensorData {
+                            time,
                             sensor: InputSensor::Accelerometer(v),
-                        }
-                    )),
+                        }))
+                    }
                     _ => {
                         warn!("Unknown sensor type: {}", sensor_type);
-                        continue; 
-                    }, 
+                        continue;
+                    }
                 }
             } else if let Some(_frames) = value.get("frames") {
                 let input_frame = InputFrame {
-                    images: self.video_inputs.iter_mut().map(|x| x.read()).collect::<Result<Vec<_>>>()?, 
-                }; 
+                    images: self
+                        .video_inputs
+                        .iter_mut()
+                        .map(|x| x.read())
+                        .collect::<Result<Vec<_>>>()?,
+                };
 
-                return Ok(Some(
-                    SensorData {
-                        time, 
-                        sensor: InputSensor::Frame(input_frame),
-                    }
-                ));
+                return Ok(Some(SensorData {
+                    time,
+                    sensor: InputSensor::Frame(input_frame),
+                }));
             } else if let Some(_) = value.get("groundTruth") {
-                // pass 
+                // pass
             } else {
                 warn!("Unrecognised data format {}", self.line);
-                continue; 
+                continue;
             }
         }
     }
 }
-
-
-

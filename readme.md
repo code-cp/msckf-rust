@@ -1,3 +1,10 @@
+## about 
+
+- how to run 
+```
+cargo run 
+```
+
 ## ref 
 
 - https://github.com/pekkaran/violet
