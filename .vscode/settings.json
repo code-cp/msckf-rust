@@ -1,5 +1,6 @@
 {
     "javascript.suggest.autoImports": false,
     "typescript.suggest.autoImports": false,
-    "files.autoSave": "onFocusChange"
+    "files.autoSave": "afterDelay",
+    "rust-analyzer.checkOnSave": true 
 }

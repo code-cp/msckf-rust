@@ -5,6 +5,9 @@ use rerun::{RecordingStream, RecordingStreamBuilder};
 use std::collections::VecDeque;
 
 use tracing::instrument;
+use tracing::Span;
+use tracing::{span, Level};
+use tracing_indicatif::span_ext::IndicatifSpanExt;
 use tracing_indicatif::IndicatifLayer;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -13,6 +16,7 @@ use crate::dataset::*;
 use crate::image::*;
 use crate::kalman_filter::*;
 use crate::my_types::*;
+use crate::camera::*; 
 
 #[derive(Debug)]
 pub struct VIO {
@@ -23,11 +27,12 @@ pub struct VIO {
     recorder: RecordingStream,
     orientation_initialized: bool,
     imu_state: StateServer,
-    frames: VecDeque<(Image, Image)>,
+    frames: VecDeque<StereoImage>,
+    cameras: Vec<Camera>,
 }
 
 impl VIO {
-    pub fn new() -> Self {
+    pub fn new(cameras: Vec<Camera>) -> Self {
         // visualization
         let recorder = RecordingStreamBuilder::new("msckf")
             .save("./logs/my_recording.rrd")
@@ -42,10 +47,10 @@ impl VIO {
             orientation_initialized: false,
             imu_state,
             frames: VecDeque::new(),
+            cameras, 
         }
     }
 
-    #[instrument(skip_all)]
     pub fn process_data(&mut self, data: &SensorData) -> Result<bool> {
         if let Some(last_time) = self.last_time {
             if data.time < last_time {
@@ -54,8 +59,6 @@ impl VIO {
             }
         }
         self.last_time = Some(data.time);
-
-        let mut is_image = false;
 
         // println!("Got sensor data at time: {:?}", data.time);
         match data.sensor {
@@ -68,7 +71,7 @@ impl VIO {
                 assert!(frame.images[0].width > 0 && frame.images[0].height > 0);
                 assert!(frame.images[1].width > 0 && frame.images[1].height > 0);
 
-                is_image = true;
+                Span::current().pb_inc(1);
 
                 self.process_frame(frame)?;
             }
@@ -93,7 +96,7 @@ impl VIO {
             }
         }
 
-        return Ok(is_image);
+        return Ok(true);
     }
 
     pub fn process_imu(&mut self, time: f64, gyro: Vector3d, acc: Vector3d) {

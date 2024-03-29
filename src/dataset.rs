@@ -7,10 +7,6 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
 
-use ffmpeg::format;
-use ffmpeg::media::Type;
-use ffmpeg::media::Type::Video;
-
 use crate::image::Image;
 use crate::my_types::*;
 use crate::video::VideoInput;
@@ -19,7 +15,7 @@ pub struct Dataset {
     reader: BufReader<File>,
     line: String,
     video_inputs: Vec<VideoInput>,
-    pub length: usize,
+    pub length: u64,
 }
 
 #[derive(Debug)]
@@ -40,13 +36,13 @@ pub struct SensorData<'a> {
     pub sensor: InputSensor<'a>,
 }
 
-fn get_groundtruth(file: &File) -> usize {
+fn get_groundtruth(file: File) -> u64 {
     let reader = BufReader::new(file);
     let mut total_items = 0;
     for line in reader.lines() {
         if let Ok(line) = line {
             if let Ok(json) = from_str::<Value>(&line) {
-                if let Some(_ground_truth) = json.get("groundTruth") {
+                if let Some(_) = json.get("number") {
                     total_items += 1;
                 }
             }
@@ -55,42 +51,15 @@ fn get_groundtruth(file: &File) -> usize {
     total_items
 }
 
-fn get_total_frames(path: &Path) -> usize {
-    // Initialize the ffmpeg library
-    ffmpeg::init().unwrap();
-
-    // Open the input file
-    let mut ictx = format::input(&path).unwrap();
-
-    // Find the video stream
-    let video_stream_index = ictx
-        .streams()
-        .enumerate()
-        .find_map(|(index, stream)| {
-            if stream.codec().medium() == Type::Video {
-                Some(index)
-            } else {
-                None
-            }
-        })
-        .unwrap();
-
-    // Get the number of frames in the video stream
-    let num_frames = ictx.streams()[video_stream_index].frames();
-
-    num_frames
-}
-
 impl Dataset {
     pub fn new(path: &Path) -> Result<Dataset> {
         let file: File = File::open(path.join("data.jsonl"))?;
+        let length = get_groundtruth(File::open(path.join("data.jsonl")).unwrap());
 
         let video_inputs = vec![
             VideoInput::new(&path.join("data.mp4"))?,
             VideoInput::new(&path.join("data2.mp4"))?,
         ];
-
-        let length = get_total_frames(&path.join("data.mp4"));
 
         Ok(Dataset {
             reader: BufReader::new(file),

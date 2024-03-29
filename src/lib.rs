@@ -6,3 +6,7 @@ pub mod vio;
 pub mod kalman_filter; 
 pub mod config; 
 pub mod math; 
+pub mod camera; 
+pub mod pinhole; 
+pub mod tracker; 
+pub mod detector; 
