@@ -7,6 +7,11 @@ use crate::my_types::*;
 
 static STATE_LEN: usize = 21;
 
+pub struct Extrinsics {
+    pub trans_imu_cam0: Matrix4d, 
+    pub trans_cam0_cam1: Matrix4d,  
+}
+
 #[derive(Debug)]
 pub struct CameraState {
     id: usize,
@@ -46,7 +51,7 @@ pub struct StateServer {
 }
 
 impl StateServer {
-    pub fn new() -> Self {
+    pub fn new(extrinsics: &Extrinsics) -> Self {
         let config = CONFIG.get().unwrap();
 
         let gravity = Vector3d::new(0., 0., -config.gravity);
@@ -57,49 +62,13 @@ impl StateServer {
         let state_cov = Matrixd::zeros(STATE_LEN, STATE_LEN);
         let q_mat = Matrixd::zeros(STATE_LEN, STATE_LEN);
 
-        // T_imu_cam: takes a vector from the IMU frame to the cam frame.
-        // T_cn_cnm1: takes a vector from the cam0 frame to the cam1 frame.
-        // see https://github.com/ethz-asl/kalibr/wiki/yaml-formats
-        let trans_imu_cam0 = Matrix4d::new(
-            0.014865542981794,
-            0.999557249008346,
-            -0.025774436697440,
-            0.065222909535531,
-            -0.999880929698575,
-            0.014967213324719,
-            0.003756188357967,
-            -0.020706385492719,
-            0.004140296794224,
-            0.025715529947966,
-            0.999660727177902,
-            -0.008054602460030,
-            0.0,
-            0.0,
-            0.0,
-            1.000000000000000,
-        );
+        let trans_imu_cam0 = extrinsics.trans_imu_cam0;  
+        let trans_cam0_cam1 = extrinsics.trans_cam0_cam1; 
+
         let r_imu_cam0 = trans_imu_cam0.fixed_slice::<3, 3>(0, 0);
         let trans_cam0_imu = trans_imu_cam0.try_inverse().unwrap();
         let t_cam0_imu = trans_cam0_imu.fixed_slice::<3, 1>(0, 3);
 
-        let trans_cam0_cam1 = Matrix4d::new(
-            0.999997256477881,
-            0.002312067192424,
-            0.000376008102415,
-            -0.110073808127187,
-            -0.002317135723281,
-            0.999898048506644,
-            0.014089835846648,
-            0.000399121547014,
-            -0.000343393120525,
-            -0.014090668452714,
-            0.999900662637729,
-            -0.000853702503357,
-            0.0,
-            0.0,
-            0.0,
-            1.000000000000000,
-        );
         let r_cam0_cam1 = trans_cam0_cam1.fixed_slice::<3, 3>(0, 0);
         let t_cam0_cam1 = trans_cam0_cam1.fixed_slice::<3, 1>(0, 3);
 

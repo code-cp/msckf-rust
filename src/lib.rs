@@ -10,3 +10,7 @@ pub mod camera;
 pub mod pinhole; 
 pub mod tracker; 
 pub mod detector; 
+pub mod feature; 
+pub mod optical_flow;
+pub mod frame; 
+pub mod pyramid; 

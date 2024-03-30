@@ -32,12 +32,12 @@ pub struct VIO {
 }
 
 impl VIO {
-    pub fn new(cameras: Vec<Camera>) -> Self {
+    pub fn new(cameras: Vec<Camera>, extrinsics: &Extrinsics) -> Self {
         // visualization
         let recorder = RecordingStreamBuilder::new("msckf")
             .save("./logs/my_recording.rrd")
             .unwrap();
-        let imu_state = StateServer::new();
+        let imu_state = StateServer::new(extrinsics);
 
         Self {
             last_time: None,

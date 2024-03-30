@@ -24,7 +24,7 @@ impl CameraModel for PinholeModel {
             (pixel[0] - self.camera_matrix[(0, 2)]) / self.camera_matrix[(0, 0)],
             (pixel[1] - self.camera_matrix[(1, 2)]) / self.camera_matrix[(1, 1)],
         );
-        Some(Vector3d::new(p[0], p[1], 1.).normalize())
+        Some(Vector3d::new(p[0], p[1], 1.))
     }
 
     fn project_with_derivative(

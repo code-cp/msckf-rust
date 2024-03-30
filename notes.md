@@ -1,0 +1,1 @@
+- [fast detector](https://en.wikipedia.org/wiki/Features_from_accelerated_segment_test)
