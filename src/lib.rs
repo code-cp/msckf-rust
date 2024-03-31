@@ -14,3 +14,4 @@ pub mod feature;
 pub mod optical_flow;
 pub mod frame; 
 pub mod pyramid; 
+pub mod visualization; 

@@ -13,13 +13,13 @@ use crate::optical_flow::OpticalFlowKind;
 pub struct Tracker {
     detector: Detector,
     optical_flow: OpticalFlow,
-    tracks: Vec<Track>,
+    pub tracks: Vec<Track>,
     max_tracks: usize,
     next_id: TrackId,
     step: usize,
-    features0: Vec<Feature>,
-    features1: Vec<Feature>,
-    features2: Vec<Feature>,
+    pub features0: Vec<Feature>,
+    pub features1: Vec<Feature>,
+    pub features2: Vec<Feature>,
 }
 
 impl Tracker {
@@ -111,8 +111,6 @@ impl Tracker {
                 &mut self.next_id,
             );
 
-            // show detected features 
-
             self.optical_flow.process(
                 OpticalFlowKind::LeftCurrentToRightCurrentDetection,
                 &frame1.pyramid_frames[0],
@@ -131,8 +129,6 @@ impl Tracker {
                 self.step,
                 frame_number,
             );
-
-            // show all tracks 
 
             self.step += 1;
         }

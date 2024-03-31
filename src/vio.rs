@@ -18,6 +18,7 @@ use crate::frame::Frame;
 use crate::kalman_filter::*;
 use crate::my_types::*;
 use crate::tracker::Tracker;
+use crate::visualization::*; 
 
 #[derive(Debug)]
 pub struct VIO {
@@ -126,14 +127,13 @@ impl VIO {
         self.tracker
             .process(frame0, frame1, &self.cameras, self.frame_number);
 
-        let image0_nd = nd::Array::from_shape_vec(
-            (frame.images[0].height, frame.images[0].width),
-            frame.images[0].clone().data,
-        )
-        .unwrap();
+        // show detected features 
+        let feature_detection_image = visualize_detected_features(frame, &self.tracker.features0)?;
+        self.recorder.log("feature detection", &rerun::Image::try_from(feature_detection_image)?)?;
 
-        let image0_rerun = rerun::Image::try_from(image0_nd.clone())?;
-        self.recorder.log("world/camera/image", &image0_rerun)?;
+        // show feature tracks 
+        let feature_track_image = visualize_tracked_features(frame, &self.tracker.tracks)?;
+        self.recorder.log("feature tracks", &rerun::Image::try_from(feature_track_image)?)?;
 
         Ok(())
     }
