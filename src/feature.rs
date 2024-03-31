@@ -1,3 +1,4 @@
+use crate::camera::{self, CameraState};
 use crate::my_types::*;
 
 #[derive(Clone, Copy, Debug)]
@@ -35,7 +36,47 @@ impl Track {
                 frame_number,
             }],
             id: features[0].id,
-            last_seen, 
+            last_seen,
         }
     }
+}
+
+// Algorithm from the book Computer Vision: Algorithms and Applications
+// by Richard Szeliski. Chapter 7.1 Triangulation, page 345.
+//
+// There are many algorithms for triangulation using N cameras. This one is
+// probably the simplest to differentiate wrt to all the pose variables.
+// However, it has a particular weakness in that it ignores the fact that the
+// fixed transformation between the stereo cameras is known, and instead treats
+// all the camera rays as equal. Using this triangulation function may degrade
+// quality of the visual updates considerably.
+//
+// NOTE This function is heavily based on the HybVIO implementation here:
+//   <https://github.com/SpectacularAI/HybVIO/blob/main/src/odometry/triangulation.cpp>
+//   (see `triangulateLinear()`)
+pub fn triangulate(
+    normalized_coordinates: &[[Vector2d; 2]],
+    camera_poses: &[[CameraState; 2]],
+) -> Option<Vector3d> {
+    assert_eq!(normalized_coordinates.len(), camera_poses.len());
+
+    let mut s = Matrix3d::zeros();
+    let mut t = Vector3d::zeros();
+
+    for i in 0..normalized_coordinates.len() {
+        for j in 0..2 {
+            let pose = &camera_poses[i][j];
+            let ip = &normalized_coordinates[i][j];
+            let ip = Vector3d::new(ip[0], ip[1], 1.);
+            let vj = pose.orientation * ip;
+            let a = Matrix3d::identity() - vj * vj.transpose();
+            s += a;
+            t += a * pose.position;
+        }
+    }
+
+    let inv_s = s.try_inverse()?;
+    let position = inv_s * t;
+
+    Some(position)
 }

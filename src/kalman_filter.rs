@@ -4,20 +4,13 @@ use std::collections::HashMap;
 use crate::config::*;
 use crate::math::*;
 use crate::my_types::*;
+use crate::camera::CameraState; 
 
 static STATE_LEN: usize = 21;
 
 pub struct Extrinsics {
     pub trans_imu_cam0: Matrix4d, 
     pub trans_cam0_cam1: Matrix4d,  
-}
-
-#[derive(Debug)]
-pub struct CameraState {
-    id: usize,
-    // Take a vector from the camera frame to world frame
-    orientation: Matrix3d,
-    position: Vector3d,
 }
 
 #[derive(Debug)]

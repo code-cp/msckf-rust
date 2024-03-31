@@ -27,3 +27,11 @@ pub trait CameraModel: Debug {
         self.project_with_derivative(ray, false).0
     }
 }
+
+#[derive(Debug)]
+pub struct CameraState {
+    pub id: usize,
+    // Take a vector from the camera frame to world frame
+    pub orientation: Matrix3d,
+    pub position: Vector3d,
+}

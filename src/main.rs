@@ -54,7 +54,7 @@ fn main() -> Result<()> {
     // create vio
     let cameras = load_intrinsics(); 
     let extrisics = load_extrinsics(); 
-    let mut vio = VIO::new(cameras, &extrisics);
+    let mut vio = VIO::new(cameras, &extrisics)?;
 
     loop {
         if let Ok(data) = dataset.next() {
