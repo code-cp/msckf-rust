@@ -13,6 +13,7 @@ type Range = [[i16; 2]; 2];
 /// average depth of the scene
 const AVERAGE_DISTANCE_METERS: f64 = 5.;
 
+#[derive(Debug)]
 pub struct OpticalFlow {
     lk_iters: usize,
     lk_levels: usize,

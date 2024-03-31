@@ -14,7 +14,6 @@ pub type Matrix4d = nalgebra::Matrix4<f64>;
 pub type Matrix34d = nalgebra::Matrix3x4<f64>;
 pub type Matrix23d = nalgebra::Matrix2x3<f64>;
 
-pub type StereoImage = (Image, Image);
 pub type ImageShape = (i32, i32);
 
 #[derive(Clone, Copy, Debug, PartialEq)]

@@ -4,6 +4,7 @@ use crate::dataset::*;
 use crate::image::Image;
 use crate::pyramid::Pyramid;
 
+#[derive(Debug)]
 pub struct PyramidFrame {
     /// original image
     pub image: Image,
@@ -21,6 +22,7 @@ impl PyramidFrame {
     }
 }
 
+#[derive(Debug)]
 pub struct Frame {
     pub pyramid_frames: Vec<PyramidFrame>,
 }

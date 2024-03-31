@@ -4,6 +4,7 @@ use crate::image::Image;
 
 const NAIVE_DOWNSCALE: bool = false;
 
+#[derive(Debug)]
 pub struct Pyramid {
     pub levels: Vec<Image>,
     pub parent_size: [usize; 2],

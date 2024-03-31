@@ -12,11 +12,12 @@ use tracing_indicatif::IndicatifLayer;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
+use crate::camera::*;
 use crate::dataset::*;
-use crate::image::*;
+use crate::frame::Frame; 
 use crate::kalman_filter::*;
 use crate::my_types::*;
-use crate::camera::*; 
+use crate::tracker::Tracker;
 
 #[derive(Debug)]
 pub struct VIO {
@@ -27,19 +28,23 @@ pub struct VIO {
     recorder: RecordingStream,
     orientation_initialized: bool,
     imu_state: StateServer,
-    frames: VecDeque<StereoImage>,
+    frames: VecDeque<Frame>,
     cameras: Vec<Camera>,
+    // Incremented just before processing a new frame. 0 before the first frame.
+    frame_number: usize,
+    tracker: Tracker,
 }
 
 impl VIO {
-    pub fn new(cameras: Vec<Camera>, extrinsics: &Extrinsics) -> Self {
+    pub fn new(cameras: Vec<Camera>, extrinsics: &Extrinsics) -> Result<Self> {
         // visualization
         let recorder = RecordingStreamBuilder::new("msckf")
             .save("./logs/my_recording.rrd")
             .unwrap();
         let imu_state = StateServer::new(extrinsics);
+        let cam0_to_cam1 = extrinsics.trans_cam0_cam1;
 
-        Self {
+        Ok(Self {
             last_time: None,
             last_acc: None,
             last_gyro: None,
@@ -47,8 +52,10 @@ impl VIO {
             orientation_initialized: false,
             imu_state,
             frames: VecDeque::new(),
-            cameras, 
-        }
+            cameras,
+            frame_number: 0,
+            tracker: Tracker::new(cam0_to_cam1)?,
+        })
     }
 
     pub fn process_data(&mut self, data: &SensorData) -> Result<bool> {
@@ -104,12 +111,20 @@ impl VIO {
     }
 
     pub fn process_frame(&mut self, frame: &InputFrame) -> Result<()> {
-        // TODO: implement frame processing
+        let mut unused_frame = None; 
         if self.frames.len() == 2 {
-            self.frames.pop_front();
+            unused_frame = self.frames.pop_front();
         }
-        self.frames
-            .push_back((frame.images[0].clone(), frame.images[1].clone()));
+        self.frames.push_back(Frame::new(frame, unused_frame)?);
+
+        let frame0 = if self.frames.len() < 2 {
+            None
+        } else {
+            self.frames.front().clone()
+        };
+        let frame1 = self.frames.back().clone().unwrap();
+        self.tracker
+            .process(frame0, frame1, &self.cameras, self.frame_number);
 
         let image0_nd = nd::Array::from_shape_vec(
             (frame.images[0].height, frame.images[0].width),

@@ -26,6 +26,7 @@ const CIRCLE: [[i32; 2]; 16] = [
     [-1, -3],
 ];
 
+#[derive(Debug)]
 pub struct Detector {
     start_threshold: i16,
     mask: Vec<bool>,
