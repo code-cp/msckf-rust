@@ -14,11 +14,11 @@ use tracing_subscriber::util::SubscriberInitExt;
 
 use crate::camera::*;
 use crate::dataset::*;
-use crate::frame::Frame; 
+use crate::frame::Frame;
 use crate::kalman_filter::*;
 use crate::my_types::*;
 use crate::tracker::Tracker;
-use crate::visualization::*; 
+use crate::visualization::*;
 
 #[derive(Debug)]
 pub struct VIO {
@@ -28,7 +28,7 @@ pub struct VIO {
     last_acc: Option<(f64, Vector3d)>,
     recorder: RecordingStream,
     orientation_initialized: bool,
-    imu_state: StateServer,
+    state_server: StateServer,
     frames: VecDeque<Frame>,
     cameras: Vec<Camera>,
     // Incremented just before processing a new frame. 0 before the first frame.
@@ -42,7 +42,7 @@ impl VIO {
         let recorder = RecordingStreamBuilder::new("msckf")
             .save("./logs/my_recording.rrd")
             .unwrap();
-        let imu_state = StateServer::new(extrinsics);
+        let state_server = StateServer::new(extrinsics);
         let cam0_to_cam1 = extrinsics.trans_cam0_cam1;
 
         Ok(Self {
@@ -51,7 +51,7 @@ impl VIO {
             last_gyro: None,
             recorder,
             orientation_initialized: false,
-            imu_state,
+            state_server,
             frames: VecDeque::new(),
             cameras,
             frame_number: 0,
@@ -108,11 +108,13 @@ impl VIO {
     }
 
     pub fn process_imu(&mut self, time: f64, gyro: Vector3d, acc: Vector3d) {
-        self.imu_state.predict(time, gyro, acc);
+        self.state_server.predict(time, gyro, acc);
     }
 
     pub fn process_frame(&mut self, frame: &InputFrame) -> Result<()> {
-        let mut unused_frame = None; 
+        self.state_server.augment_state();
+
+        let mut unused_frame = None;
         if self.frames.len() == 2 {
             unused_frame = self.frames.pop_front();
         }
@@ -127,13 +129,27 @@ impl VIO {
         self.tracker
             .process(frame0, frame1, &self.cameras, self.frame_number);
 
-        // show detected features 
-        let feature_detection_image = visualize_detected_features(frame, &self.tracker.features0)?;
-        self.recorder.log("feature detection", &rerun::Image::try_from(feature_detection_image)?)?;
+        self.state_server.prune_state();
 
-        // show feature tracks 
+        // show detected features
+        let feature_detection_image = visualize_detected_features(frame, &self.tracker.features0)?;
+        self.recorder.log(
+            "world/camera/feature_detection",
+            &rerun::Image::try_from(feature_detection_image)?,
+        )?;
+
+        // show feature tracks
         let feature_track_image = visualize_tracked_features(frame, &self.tracker.tracks)?;
-        self.recorder.log("feature tracks", &rerun::Image::try_from(feature_track_image)?)?;
+        self.recorder.log(
+            "world/camera/feature_tracks",
+            &rerun::Image::try_from(feature_track_image)?,
+        )?;
+
+        // show feature map
+        self.recorder.log(
+            "world/feature_map",
+            &rerun::Points3D::new(self.state_server.get_feature_map_for_visualization().iter()),
+        )?;
 
         Ok(())
     }

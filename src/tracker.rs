@@ -162,6 +162,7 @@ fn sparsify_tracks(tracks: &mut Vec<Track>, min_distance: f64) {
         }
     }
 
+    // Remove tracks that could not be tracked
     let mut i = 0;
     while i < tracks.len() {
         if !tracks[i].points.is_empty() {

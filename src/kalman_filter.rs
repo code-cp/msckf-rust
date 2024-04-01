@@ -1,16 +1,21 @@
 use nalgebra as na;
-use std::collections::HashMap;
+use rand::seq::SliceRandom;
+use rand_xoshiro::rand_core::SeedableRng;
+use rand_xoshiro::Xoshiro256PlusPlus;
+use std::collections::{BTreeMap, HashMap};
+use std::mem;
 
+use crate::camera::CameraState;
 use crate::config::*;
+use crate::feature::{triangulate, Track};
 use crate::math::*;
 use crate::my_types::*;
-use crate::camera::CameraState; 
 
 static STATE_LEN: usize = 21;
 
 pub struct Extrinsics {
-    pub trans_imu_cam0: Matrix4d, 
-    pub trans_cam0_cam1: Matrix4d,  
+    pub trans_imu_cam0: Matrix4d,
+    pub trans_cam0_cam1: Matrix4d,
 }
 
 #[derive(Debug)]
@@ -28,19 +33,20 @@ pub struct StateServer {
     /// transformation between IMU and left camera frame
     r_imu_cam0: Matrix3d,
     t_cam0_imu: Vector3d,
-    // Takes a vector from the cam0 frame to the cam1 frame
+    /// Takes a vector from the cam0 frame to the cam1 frame
     r_cam0_cam1: Matrix3d,
     t_cam0_cam1: Vector3d,
-    // noise matrix
+    /// noise matrix
     q_mat: Matrixd,
-    // covariance matrix
+    /// covariance matrix
     state_cov: Matrixd,
     gravity: Vector3d,
     window_size: usize,
     last_time: Option<f64>,
     is_initialized: bool,
-    camera_states: HashMap<usize, CameraState>,
+    camera_states: BTreeMap<usize, CameraState>,
     state_id: usize,
+    pub feature_map: HashMap<usize, Vector3d>,
 }
 
 impl StateServer {
@@ -55,8 +61,8 @@ impl StateServer {
         let state_cov = Matrixd::zeros(STATE_LEN, STATE_LEN);
         let q_mat = Matrixd::zeros(STATE_LEN, STATE_LEN);
 
-        let trans_imu_cam0 = extrinsics.trans_imu_cam0;  
-        let trans_cam0_cam1 = extrinsics.trans_cam0_cam1; 
+        let trans_imu_cam0 = extrinsics.trans_imu_cam0;
+        let trans_cam0_cam1 = extrinsics.trans_cam0_cam1;
 
         let r_imu_cam0 = trans_imu_cam0.fixed_slice::<3, 3>(0, 0);
         let trans_cam0_imu = trans_imu_cam0.try_inverse().unwrap();
@@ -81,8 +87,9 @@ impl StateServer {
             window_size,
             last_time: None,
             is_initialized: false,
-            camera_states: HashMap::new(),
+            camera_states: BTreeMap::new(),
             state_id: 0,
+            feature_map: HashMap::new(),
         }
     }
 
@@ -228,11 +235,13 @@ impl StateServer {
         let w_r_c = w_r_i * c_r_i.transpose();
         let w_p_c = w_p_i + w_r_i * i_p_c;
 
-        let camera_state = CameraState {
-            id: self.state_id,
-            orientation: w_r_c,
-            position: w_p_c,
-        };
+        let camera_state = CameraState::new(
+            self.state_id,
+            w_r_c,
+            w_p_c,
+            &self.r_cam0_cam1,
+            &self.t_cam0_cam1,
+        );
 
         self.camera_states.insert(self.state_id, camera_state);
 
@@ -276,6 +285,46 @@ impl StateServer {
         self.state_cov = state_cov;
     }
 
+    pub fn prune_state(&mut self) {
+        if self.camera_states.len() <= self.window_size {
+            return;
+        }
+        // remove the oldest camera
+        self.camera_states.pop_first();
+
+        let cam_state_start = STATE_LEN;
+        let cam_state_end = cam_state_start + 6;
+        let new_size = STATE_LEN + self.window_size * 6;
+        let mut new_state_cov = Matrixd::zeros(new_size, new_size);
+        new_state_cov
+            .slice_mut((0, 0), (STATE_LEN, STATE_LEN))
+            .copy_from(&self.state_cov.slice((0, 0), (STATE_LEN, STATE_LEN)));
+        new_state_cov
+            .slice_mut((0, STATE_LEN), (STATE_LEN, self.window_size * 6))
+            .copy_from(
+                &self
+                    .state_cov
+                    .slice((0, cam_state_end), (STATE_LEN, self.window_size * 6)),
+            );
+        new_state_cov
+            .slice_mut((STATE_LEN, 0), (self.window_size * 6, STATE_LEN))
+            .copy_from(
+                &self
+                    .state_cov
+                    .slice((cam_state_end, 0), (self.window_size * 6, STATE_LEN)),
+            );
+        new_state_cov
+            .slice_mut(
+                (STATE_LEN, STATE_LEN),
+                (self.window_size * 6, self.window_size * 6),
+            )
+            .copy_from(&self.state_cov.slice(
+                (cam_state_end, cam_state_end),
+                (self.window_size * 6, self.window_size * 6),
+            ));
+        mem::swap(&mut self.state_cov, &mut new_state_cov);
+    }
+
     fn get_cam_wrt_imu_se3_jacobian(
         &self,
         c_r_i: &Matrix3d,
@@ -289,5 +338,52 @@ impl StateServer {
         p_cxi_p_ixi.fixed_slice_mut::<3, 3>(3, 0).copy_from(c_r_i);
         p_cxi_p_ixi.fixed_slice_mut::<3, 3>(0, 3).copy_from(c_r_w);
         p_cxi_p_ixi
+    }
+
+    pub fn get_feature_map_for_visualization(&self) -> Vec<[f32; 3]> {
+        self.feature_map.values().copied().map(|value| [value[0] as f32, value[1] as f32, value[2] as f32]).collect()
+    }
+
+    pub fn update(&mut self, tracks: &[Track]) {
+        let mut successful_update_count = 0;
+
+        let feature_update_number = 50;
+        let mut rng = Xoshiro256PlusPlus::seed_from_u64(0);
+
+        let camera_frame_indices: Vec<usize> =
+            self.camera_states.keys().copied().collect::<Vec<usize>>();
+
+        'track: for track in tracks.choose_multiple(&mut rng, feature_update_number) {
+            let mut frame_index = 0;
+            let mut normalized_coordinates = Vec::<[Vector2d; 2]>::new();
+            let mut camera_poses = Vec::<&CameraState>::new();
+            for point in &track.points {
+                if point.frame_number < camera_frame_indices[0] {
+                    continue;
+                }
+                while frame_index < camera_frame_indices.len()
+                    && camera_frame_indices[frame_index] < point.frame_number
+                {
+                    frame_index += 1;
+                }
+                if point.frame_number != camera_frame_indices[frame_index] {
+                    continue;
+                }
+                normalized_coordinates.push(point.normalized_coordinates);
+                camera_poses.push(self.camera_states.get(&frame_index).unwrap().clone());
+            }
+
+            if normalized_coordinates.len() == 0 {
+                continue;
+            }
+
+            if let Some(position) = triangulate(&normalized_coordinates, &camera_poses) {
+                self.feature_map
+                    .entry(track.id.0)
+                    .and_modify(|value| *value = position)
+                    .or_insert(position);
+                unimplemented!();
+            }
+        }
     }
 }

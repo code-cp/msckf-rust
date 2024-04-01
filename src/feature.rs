@@ -56,7 +56,7 @@ impl Track {
 //   (see `triangulateLinear()`)
 pub fn triangulate(
     normalized_coordinates: &[[Vector2d; 2]],
-    camera_poses: &[[CameraState; 2]],
+    camera_poses: &[&CameraState],
 ) -> Option<Vector3d> {
     assert_eq!(normalized_coordinates.len(), camera_poses.len());
 
@@ -64,8 +64,9 @@ pub fn triangulate(
     let mut t = Vector3d::zeros();
 
     for i in 0..normalized_coordinates.len() {
+        let camera_poses = camera_poses[i].convert_to_stereo_poses_vec(); 
         for j in 0..2 {
-            let pose = &camera_poses[i][j];
+            let pose = &camera_poses[j]; 
             let ip = &normalized_coordinates[i][j];
             let ip = Vector3d::new(ip[0], ip[1], 1.);
             let vj = pose.orientation * ip;
