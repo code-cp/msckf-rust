@@ -34,6 +34,7 @@ pub struct StateServer {
     r_imu_cam0: Matrix3d,
     t_cam0_imu: Vector3d,
     /// Takes a vector from the cam0 frame to the cam1 frame
+    trans_cam0_cam1: Matrix4d,
     r_cam0_cam1: Matrix3d,
     t_cam0_cam1: Vector3d,
     /// noise matrix
@@ -47,6 +48,7 @@ pub struct StateServer {
     camera_states: BTreeMap<usize, CameraState>,
     state_id: usize,
     pub feature_map: HashMap<usize, Vector3d>,
+    observation_noise: f64,
 }
 
 impl StateServer {
@@ -71,6 +73,8 @@ impl StateServer {
         let r_cam0_cam1 = trans_cam0_cam1.fixed_slice::<3, 3>(0, 0);
         let t_cam0_cam1 = trans_cam0_cam1.fixed_slice::<3, 1>(0, 3);
 
+        let observation_noise: f64 = (0.035_f64).powi(2);
+
         Self {
             p: Vector3d::zeros(),
             v: Vector3d::zeros(),
@@ -81,6 +85,7 @@ impl StateServer {
             t_cam0_imu: t_cam0_imu.into(),
             r_cam0_cam1: r_cam0_cam1.into(),
             t_cam0_cam1: t_cam0_cam1.into(),
+            trans_cam0_cam1,
             state_cov,
             q_mat,
             gravity,
@@ -90,6 +95,7 @@ impl StateServer {
             camera_states: BTreeMap::new(),
             state_id: 0,
             feature_map: HashMap::new(),
+            observation_noise,
         }
     }
 
@@ -239,8 +245,8 @@ impl StateServer {
             self.state_id,
             w_r_c,
             w_p_c,
-            &self.r_cam0_cam1,
-            &self.t_cam0_cam1,
+            self.r_cam0_cam1,
+            self.t_cam0_cam1,
         );
 
         self.camera_states.insert(self.state_id, camera_state);
@@ -341,7 +347,17 @@ impl StateServer {
     }
 
     pub fn get_feature_map_for_visualization(&self) -> Vec<[f32; 3]> {
-        self.feature_map.values().copied().map(|value| [value[0] as f32, value[1] as f32, value[2] as f32]).collect()
+        self.feature_map
+            .values()
+            .copied()
+            .map(|value| [value[0] as f32, value[1] as f32, value[2] as f32])
+            .collect()
+    }
+
+    fn get_camera_indices(&self) -> Vec<usize> {
+        let camera_frame_indices: Vec<usize> =
+            self.camera_states.keys().copied().collect::<Vec<usize>>();
+        camera_frame_indices
     }
 
     pub fn update(&mut self, tracks: &[Track]) {
@@ -350,8 +366,7 @@ impl StateServer {
         let feature_update_number = 50;
         let mut rng = Xoshiro256PlusPlus::seed_from_u64(0);
 
-        let camera_frame_indices: Vec<usize> =
-            self.camera_states.keys().copied().collect::<Vec<usize>>();
+        let camera_frame_indices = self.get_camera_indices();
 
         'track: for track in tracks.choose_multiple(&mut rng, feature_update_number) {
             let mut frame_index = 0;
@@ -378,11 +393,171 @@ impl StateServer {
             }
 
             if let Some(position) = triangulate(&normalized_coordinates, &camera_poses) {
+                // update feature map
                 self.feature_map
                     .entry(track.id.0)
                     .and_modify(|value| *value = position)
                     .or_insert(position);
-                unimplemented!();
+
+                // update step
+                let mut camera_indices = Vec::new(); 
+                let jacobian_row_size = 4 * camera_poses.len();
+                let mut jacobian_x =
+                    Matrixd::zeros(jacobian_row_size, STATE_LEN + 6 * self.camera_states.len());
+                let mut jacobian_f = Matrixd::zeros(jacobian_row_size, 3);
+                let mut residual = Vectord::zeros(jacobian_row_size);
+                for ((observation_index, normalized_coordinate), pose) in normalized_coordinates
+                    .iter()
+                    .enumerate()
+                    .zip(camera_poses.iter())
+                {
+                    camera_indices.push(pose.id); 
+                    // Convert the feature position from the world frame to camera frame
+                    let stereo_poses = pose.convert_to_stereo_poses_vec();
+                    let w_trans_left_cam = &stereo_poses[0];
+                    let left_cam_trans_w = w_trans_left_cam.inverse();
+                    let w_trans_right_cam = &stereo_poses[1];
+                    let right_cam_trans_w = w_trans_right_cam.inverse();
+
+                    let p_c0 = left_cam_trans_w.orientation * position + left_cam_trans_w.position;
+                    let p_c1 =
+                        right_cam_trans_w.orientation * position + right_cam_trans_w.position;
+
+                    // Check the triangulated point is in front of all cameras
+                    if p_c0[2] < 0. || p_c1[2] < 0. {
+                        continue 'track;
+                    }
+
+                    // Compute the Jacobians of the reprojection error wrt the state
+                    let mut temp_mat = Matrixd::zeros(3, 4);
+                    temp_mat
+                        .slice_mut((0, 0), (3, 3))
+                        .copy_from(&Matrix3d::identity());
+
+                    let p_c0_jacobi = p_c0;
+                    let mut dz_dpc0 = Matrixd::zeros(4, 3);
+                    dz_dpc0[(0, 0)] = 1. / p_c0[2];
+                    dz_dpc0[(0, 2)] = -p_c0[0] / (p_c1[2].powi(2));
+                    dz_dpc0[(1, 1)] = 1. / p_c0[2];
+                    dz_dpc0[(1, 2)] = -p_c0[1] / (p_c1[2].powi(2));
+                    let uline_l0 =
+                        Vector4d::new(p_c0_jacobi[0], p_c0_jacobi[1], p_c0_jacobi[2], 1.);
+                    let dpc0_dxc = -temp_mat.clone() * odot_operator(&uline_l0);
+
+                    let mut dz_dpc1 = Matrixd::zeros(4, 3);
+                    dz_dpc1[(2, 0)] = 1. / p_c1[2];
+                    dz_dpc1[(2, 2)] = -p_c1[0] / (p_c1[2].powi(2));
+                    dz_dpc1[(3, 1)] = 1. / p_c1[2];
+                    dz_dpc1[(3, 2)] = -p_c1[1] / (p_c1[2].powi(2));
+                    let dpc1_dxc = -temp_mat.clone() * self.trans_cam0_cam1 * odot_operator(&uline_l0);
+
+                    let dpc0_dpg = left_cam_trans_w.orientation;
+                    let dpc1_dpg = right_cam_trans_w.orientation;
+
+                    //shape (4, 6)
+                    let jacobian_x_feature = dz_dpc0.clone() * dpc0_dxc + dz_dpc1.clone() * dpc1_dxc;
+                    //shape (4, 3)
+                    let jacobian_f_feature = dz_dpc0 * dpc0_dpg + dz_dpc1 * dpc1_dpg;
+
+                    // Compute the residual
+                    let mut residual_feature = Vector4d::zeros();
+                    residual_feature[0] = normalized_coordinate[0][0] - p_c0[0] / p_c0[2];
+                    residual_feature[1] = normalized_coordinate[0][1] - p_c0[1] / p_c0[2];
+                    residual_feature[2] = normalized_coordinate[1][0] - p_c1[0] / p_c1[2];
+                    residual_feature[3] = normalized_coordinate[1][1] - p_c1[1] / p_c1[2];
+
+                    let camera_index = camera_frame_indices
+                        .iter()
+                        .position(|&v| v == pose.id)
+                        .unwrap();
+                    jacobian_x
+                        .slice_mut(
+                            (observation_index * 4, STATE_LEN + 6 * camera_index),
+                            (4, 6),
+                        )
+                        .copy_from(&jacobian_x_feature);
+                    jacobian_f
+                        .slice_mut((observation_index * 4, 0), (4, 3))
+                        .copy_from(&jacobian_f_feature);
+                    residual
+                        .slice_mut((observation_index * 4, 0), (4, 1))
+                        .copy_from(&residual_feature);
+                }
+
+                // Project the residual and Jacobians onto the nullspace
+                let svd = na::linalg::SVD::new(jacobian_f.clone(), true, true);
+                // U matrix
+                let u_mat = svd.u.unwrap();
+                let a_mat = u_mat.slice((0, 3), (u_mat.nrows(), u_mat.ncols() - 3));
+                let jacobian_x = a_mat.transpose() * jacobian_x;
+                let residual = a_mat.transpose() * residual;
+
+                // perform update step
+                let p_mat = self.state_cov.clone();
+                let jacobian_x_transpose = jacobian_x.transpose();
+                let nrows = jacobian_x.nrows(); 
+                let s_mat = jacobian_x.clone() * p_mat.clone() * jacobian_x_transpose 
+                    + self.observation_noise
+                        * Matrixd::identity(nrows, nrows);
+                let tolerance = 1e-3;
+                let k_mat = na::linalg::SVD::new(s_mat, true, true)
+                    .solve(&(jacobian_x.clone() * p_mat), tolerance)
+                    .unwrap()
+                    .transpose();
+
+                let delta_x = k_mat.clone() * residual;
+                // update the imu state
+                self.rot = self.rot * so3_exp(&Vector3d::new(delta_x[0], delta_x[1], delta_x[2]));
+                self.v += Vector3d::new(delta_x[3], delta_x[4], delta_x[5]);
+                self.p += Vector3d::new(delta_x[6], delta_x[7], delta_x[8]);
+                self.bg += Vector3d::new(delta_x[9], delta_x[10], delta_x[11]);
+                self.ba += Vector3d::new(delta_x[12], delta_x[13], delta_x[14]);
+
+                // update the extrinsics
+                let delta_i_trans_c =
+                    so3_exp(&Vector3d::new(delta_x[15], delta_x[16], delta_x[17]));
+                // need to update P first using old R
+                let mut i_r_c = self.r_imu_cam0.transpose();
+                let i_p_c = self.t_cam0_imu;
+                self.t_cam0_imu = i_r_c
+                    * Vector3d::new(
+                        delta_i_trans_c[(0, 3)],
+                        delta_i_trans_c[(1, 3)],
+                        delta_i_trans_c[(2, 3)],
+                    )
+                    + i_p_c;
+                self.t_cam0_imu = i_p_c;
+                // update R
+                i_r_c = i_r_c * delta_i_trans_c.fixed_slice::<3, 3>(0, 0);
+                self.r_imu_cam0 = i_r_c.transpose();
+
+                // Update the camera states
+                for index in camera_indices.iter() {
+                    let delta_camera = Vector3d::new(
+                        delta_x[STATE_LEN + index * 6],
+                        delta_x[STATE_LEN + index * 6 + 1],
+                        delta_x[STATE_LEN + index * 6 + 2],
+                    );
+                    let delta_w_trans_cam = so3_exp(&delta_camera);
+                    let camera_state = self.camera_states.get(index).unwrap().clone();
+                    let orientation = camera_state.orientation;
+                    let position = camera_state.position;
+                    let camera_state = self.camera_states.get_mut(index).unwrap(); 
+                    camera_state.position = orientation
+                        * Vector3d::new(
+                            delta_w_trans_cam[(0, 3)],
+                            delta_w_trans_cam[(1, 3)],
+                            delta_w_trans_cam[(2, 3)],
+                        )
+                        + position;
+                    camera_state.orientation =
+                        orientation * delta_w_trans_cam.fixed_slice::<3, 3>(0, 0);
+                }
+
+                // Update state covariance
+                let i_kh_mat = Matrixd::identity(k_mat.nrows(), k_mat.ncols()) - k_mat * jacobian_x;
+                let state_cov = self.state_cov.clone(); 
+                self.state_cov = i_kh_mat * state_cov; 
             }
         }
     }

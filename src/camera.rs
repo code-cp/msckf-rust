@@ -1,4 +1,5 @@
 use std::fmt::Debug;
+use nalgebra as na; 
 
 use crate::my_types::*;
 
@@ -29,17 +30,6 @@ pub trait CameraModel: Debug {
 }
 
 #[derive(Debug)]
-pub struct CameraState {
-    pub id: usize,
-    /// Take a vector from the camera frame to world frame
-    pub left_orientation: Matrix3d,
-    pub left_position: Vector3d,
-    /// Takes a vector from the cam0 frame to the cam1 frame
-    pub right_orientation: Matrix3d,
-    pub right_position: Vector3d,
-}
-
-#[derive(Debug)]
 pub struct CameraPose {
     pub id: usize,
     /// Take a vector from the camera frame to world frame
@@ -47,30 +37,60 @@ pub struct CameraPose {
     pub position: Vector3d,
 }
 
+impl CameraPose {
+    pub fn inverse(&self) -> Self {
+        let translation = na::Translation::from(self.position); 
+        let rotation = na::Rotation3::from_matrix(&self.orientation); 
+        let isometry = na::Isometry3::from_parts(translation, rotation.into());
+        let inverse_pose = isometry.inverse(); 
+        let orientation = inverse_pose.rotation.to_rotation_matrix().into(); 
+        let position = inverse_pose.translation.vector; 
+        Self {
+            id: self.id, 
+            orientation, 
+            position, 
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct CameraState {
+    pub id: usize,
+    /// Take a vector from the camera frame to world frame
+    pub orientation: Matrix3d,
+    pub position: Vector3d,
+    pub cam1_trans_cam0: CameraPose, 
+}
+
 impl CameraState {
-    pub fn new(id: usize, left_orientation: Matrix3d, left_position: Vector3d, r_cam0_cam1: &Matrix3d, t_cam0_cam1: &Vector3d) -> Self {
-        let right_orientation =  left_orientation * r_cam0_cam1.transpose();
-        let right_position = -left_orientation * r_cam0_cam1.transpose() * t_cam0_cam1 + left_position; 
+    pub fn new(id: usize, orientation: Matrix3d, position: Vector3d, r_cam0_cam1: Matrix3d, t_cam0_cam1: Vector3d) -> Self {
+        let cam1_trans_cam0 = CameraPose {
+            id, 
+            orientation: r_cam0_cam1, 
+            position: t_cam0_cam1, 
+        }; 
     
         Self {
             id, 
-            left_orientation, 
-            left_position, 
-            right_orientation, 
-            right_position, 
+            orientation, 
+            position, 
+            cam1_trans_cam0, 
         }
     }
 
     pub fn convert_to_stereo_poses_vec(&self) -> Vec<CameraPose> {
+        let right_orientation =  self.orientation * self.cam1_trans_cam0.orientation.transpose();
+        let right_position = -self.orientation * self.cam1_trans_cam0.orientation.transpose() * self.cam1_trans_cam0.position + self.position; 
+
         let left_pose = CameraPose {
             id: self.id, 
-            orientation: self.left_orientation, 
-            position: self.left_position, 
+            orientation: self.orientation, 
+            position: self.position, 
         }; 
         let right_pose = CameraPose {
             id: self.id, 
-            orientation: self.right_orientation, 
-            position: self.right_position, 
+            orientation: right_orientation, 
+            position: right_position, 
         }; 
         vec![left_pose, right_pose]
     }

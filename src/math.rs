@@ -96,3 +96,15 @@ pub fn hnormalize(p: Vector3d) -> Option<Vector2d> {
     }
     Some(Vector2d::new(p[0] / p[2], p[1] / p[2]))
 }
+
+pub fn odot_operator(x: &Vector4d) -> Matrixd {
+    let x = Vector3d::new(x[0], x[1], x[2]); 
+    let mut result = Matrixd::zeros(4, 6);
+    result
+        .slice_mut((0, 0), (3, 3))
+        .copy_from(&Matrix3d::identity());
+    result
+        .slice_mut((0, 3), (3, 3))
+        .copy_from(&skew(&x));
+    result
+}
