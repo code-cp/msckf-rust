@@ -1,3 +1,5 @@
+use tracing::debug;
+
 use crate::feature::Feature;
 use crate::image::Image;
 use crate::my_types::*;
@@ -50,15 +52,12 @@ impl Detector {
         assert!(image.width > 1 + 2 * CIRCLE_RADIUS);
         assert!(image.height > 1 + 2 * CIRCLE_RADIUS);
 
-        debug!("image width {} height {}", image.width, image.height); 
-
         detections.clear();
 
         if required_feature_count == 0 {
             return;
         }
 
-        self.mask.clear();
         self.mask = vec![false; image.width * image.height];
 
         let mut threshold = self.start_threshold;

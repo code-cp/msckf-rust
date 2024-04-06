@@ -29,7 +29,7 @@ pub trait CameraModel: Debug {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CameraPose {
     pub id: usize,
     /// Take a vector from the camera frame to world frame
@@ -53,7 +53,7 @@ impl CameraPose {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CameraState {
     pub id: usize,
     /// Take a vector from the camera frame to world frame

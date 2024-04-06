@@ -371,8 +371,6 @@ impl StateServer {
     }
 
     pub fn update(&mut self, tracks: &[Track]) {
-        let mut successful_update_count = 0;
-
         let feature_update_number = 50;
         let mut rng = Xoshiro256PlusPlus::seed_from_u64(0);
 
@@ -395,7 +393,7 @@ impl StateServer {
                     continue;
                 }
                 normalized_coordinates.push(point.normalized_coordinates);
-                camera_poses.push(self.camera_states.get(&frame_index).unwrap().clone());
+                camera_poses.push(&self.camera_states.get(&frame_index).unwrap());
             }
 
             if normalized_coordinates.len() == 0 {
