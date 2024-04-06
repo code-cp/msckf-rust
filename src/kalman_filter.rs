@@ -99,6 +99,16 @@ impl StateServer {
         }
     }
 
+    /// obtain the camera pose in world frame for visualization 
+    pub fn get_camera_pose(&self) -> na::Isometry3<f64> {
+        let w_r_cam0 = self.rot * self.r_imu_cam0.transpose(); 
+        let w_t_cam0 = self.rot * self.t_cam0_imu + self.p; 
+        let translation = na::Translation::from(w_t_cam0); 
+        let rotation = na::Rotation3::from_matrix(&w_r_cam0); 
+        let isometry = na::Isometry3::from_parts(translation, rotation.into());
+        isometry 
+    }
+
     pub fn initialize_q(&mut self) {
         let config = CONFIG.get().unwrap();
 

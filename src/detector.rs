@@ -50,6 +50,8 @@ impl Detector {
         assert!(image.width > 1 + 2 * CIRCLE_RADIUS);
         assert!(image.height > 1 + 2 * CIRCLE_RADIUS);
 
+        debug!("image width {} height {}", image.width, image.height); 
+
         detections.clear();
 
         if required_feature_count == 0 {

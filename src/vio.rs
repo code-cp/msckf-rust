@@ -139,17 +139,29 @@ impl VIO {
         )?;
 
         // show feature tracks
-        let feature_track_image = visualize_tracked_features(frame, &self.tracker.tracks)?;
-        self.recorder.log(
-            "world/camera/feature_tracks",
-            &rerun::Image::try_from(feature_track_image)?,
-        )?;
+        // let feature_track_image = visualize_tracked_features(frame, &self.tracker.tracks)?;
+        // self.recorder.log(
+        //     "world/camera/feature_tracks",
+        //     &rerun::Image::try_from(feature_track_image)?,
+        // )?;
 
         // show feature map
-        self.recorder.log(
-            "world/feature_map",
-            &rerun::Points3D::new(self.state_server.get_feature_map_for_visualization().iter()),
-        )?;
+        // self.recorder.log(
+        //     "world/feature_map",
+        //     &rerun::Points3D::new(self.state_server.get_feature_map_for_visualization().iter()),
+        // )?;
+
+        // show camera pose
+        // let w_tr_c = self.state_server.get_camera_pose();
+        // let arrow = rerun::Arrows3D::from_vectors(
+        //     [(w_tr_c.rotation.euler_angles().0 as f32, w_tr_c.rotation.euler_angles().1 as f32, w_tr_c.rotation.euler_angles().2 as f32)]
+        //     ).
+        //     with_origins([(
+        //         w_tr_c.translation.x as f32,
+        //         w_tr_c.translation.y as f32,
+        //         w_tr_c.translation.z as f32,
+        //     )]);
+        // self.recorder.log("world/camera/pose", &arrow)?;
 
         Ok(())
     }
