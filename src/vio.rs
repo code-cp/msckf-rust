@@ -1,6 +1,7 @@
 use anyhow::{anyhow, bail, Context as AnyhowContext, Result};
 use log::{debug, error, info, warn, LevelFilter};
 use ndarray as nd;
+use nalgebra as na; 
 use rerun::{RecordingStream, RecordingStreamBuilder};
 use std::collections::VecDeque;
 
@@ -19,6 +20,7 @@ use crate::kalman_filter::*;
 use crate::my_types::*;
 use crate::tracker::Tracker;
 use crate::visualization::*;
+use crate::math::*; 
 
 #[derive(Debug)]
 pub struct VIO {
@@ -129,6 +131,8 @@ impl VIO {
         self.tracker
             .process(frame0, frame1, &self.cameras, self.frame_number);
 
+        self.state_server.update(&self.tracker.tracks); 
+
         self.state_server.prune_state();
 
         // show detected features
@@ -139,29 +143,30 @@ impl VIO {
         )?;
 
         // show feature tracks
-        // let feature_track_image = visualize_tracked_features(frame, &self.tracker.tracks)?;
-        // self.recorder.log(
-        //     "world/camera/feature_tracks",
-        //     &rerun::Image::try_from(feature_track_image)?,
-        // )?;
+        let feature_track_image = visualize_tracked_features(frame, &self.tracker.tracks)?;
+        self.recorder.log(
+            "world/camera/feature_tracks",
+            &rerun::Image::try_from(feature_track_image)?,
+        )?;
 
         // show feature map
-        // self.recorder.log(
-        //     "world/feature_map",
-        //     &rerun::Points3D::new(self.state_server.get_feature_map_for_visualization().iter()),
-        // )?;
+        self.recorder.log(
+            "world/feature_map",
+            &rerun::Points3D::new(self.state_server.get_feature_map_for_visualization().iter()),
+        )?;
 
         // show camera pose
-        // let w_tr_c = self.state_server.get_camera_pose();
-        // let arrow = rerun::Arrows3D::from_vectors(
-        //     [(w_tr_c.rotation.euler_angles().0 as f32, w_tr_c.rotation.euler_angles().1 as f32, w_tr_c.rotation.euler_angles().2 as f32)]
-        //     ).
-        //     with_origins([(
-        //         w_tr_c.translation.x as f32,
-        //         w_tr_c.translation.y as f32,
-        //         w_tr_c.translation.z as f32,
-        //     )]);
-        // self.recorder.log("world/camera/pose", &arrow)?;
+        let w_tr_c = self.state_server.get_camera_pose();
+        let euler_angles = rotation_to_euler(&w_tr_c.fixed_view::<3,3>(0,0).into());
+        let arrow = rerun::Arrows3D::from_vectors(
+            [(euler_angles.x as f32, euler_angles.y as f32, euler_angles.z as f32)]
+            ).
+            with_origins([(
+                w_tr_c[(0,3)] as f32,
+                w_tr_c[(1,3)] as f32,
+                w_tr_c[(2,3)] as f32,
+            )]);
+        self.recorder.log("world/camera/pose", &arrow)?;
 
         Ok(())
     }

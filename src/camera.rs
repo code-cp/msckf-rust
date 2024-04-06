@@ -39,12 +39,9 @@ pub struct CameraPose {
 
 impl CameraPose {
     pub fn inverse(&self) -> Self {
-        let translation = na::Translation::from(self.position); 
-        let rotation = na::Rotation3::from_matrix(&self.orientation); 
-        let isometry = na::Isometry3::from_parts(translation, rotation.into());
-        let inverse_pose = isometry.inverse(); 
-        let orientation = inverse_pose.rotation.to_rotation_matrix().into(); 
-        let position = inverse_pose.translation.vector; 
+        let orientation = self.orientation.transpose(); 
+        let position = -orientation * self.position; 
+
         Self {
             id: self.id, 
             orientation, 

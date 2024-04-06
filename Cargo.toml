@@ -7,8 +7,14 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0"
-opencv = { version = "0.89.0", features = ["clang-runtime"] }
-nalgebra = "0.30"
+# if use latest opencv, then cannot build 
+opencv = "0.80.0"
+
+# NOTE, nalgebra-lapack = "0.24.0" requires nalgebra 0.32
+# if use a lower version, the error will say using two versions of nalgebra 
+nalgebra = "0.32.5"
+nalgebra-lapack = "0.24.0"
+
 ndarray = "0.15"
 rerun = "0.14.1"
 clap = { version = "3", features = ["derive"] }
@@ -30,3 +36,4 @@ serde_json = "1"
 
 # Logging facade.
 log = "0.4"
+

@@ -5,6 +5,7 @@ use crate::image::Image;
 pub type Vector2d = na::Vector2<f64>;
 pub type Vector3d = na::Vector3<f64>;
 pub type Vector4d = na::Vector4<f64>;
+pub type Vector6d = na::Vector6<f64>;
 pub type Vectord = nalgebra::DVector<f64>;
 
 pub type Matrixd = nalgebra::DMatrix<f64>;

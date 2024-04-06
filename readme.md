@@ -2,7 +2,7 @@
 
 - how to run 
 ```
-cargo run 
+cargo run --release > output.txt 
 ```
 
 ## ref 

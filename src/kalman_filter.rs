@@ -1,4 +1,6 @@
 use nalgebra as na;
+use nalgebra::{SVD, Dynamic, Matrix};
+use nalgebra_lapack::SVD as LapackSVD;
 use rand::seq::SliceRandom;
 use rand_xoshiro::rand_core::SeedableRng;
 use rand_xoshiro::Xoshiro256PlusPlus;
@@ -66,12 +68,12 @@ impl StateServer {
         let trans_imu_cam0 = extrinsics.trans_imu_cam0;
         let trans_cam0_cam1 = extrinsics.trans_cam0_cam1;
 
-        let r_imu_cam0 = trans_imu_cam0.fixed_slice::<3, 3>(0, 0);
+        let r_imu_cam0 = trans_imu_cam0.fixed_view::<3, 3>(0, 0);
         let trans_cam0_imu = trans_imu_cam0.try_inverse().unwrap();
-        let t_cam0_imu = trans_cam0_imu.fixed_slice::<3, 1>(0, 3);
+        let t_cam0_imu = trans_cam0_imu.fixed_view::<3, 1>(0, 3);
 
-        let r_cam0_cam1 = trans_cam0_cam1.fixed_slice::<3, 3>(0, 0);
-        let t_cam0_cam1 = trans_cam0_cam1.fixed_slice::<3, 1>(0, 3);
+        let r_cam0_cam1 = trans_cam0_cam1.fixed_view::<3, 3>(0, 0);
+        let t_cam0_cam1 = trans_cam0_cam1.fixed_view::<3, 1>(0, 3);
 
         let observation_noise: f64 = (0.035_f64).powi(2);
 
@@ -100,13 +102,13 @@ impl StateServer {
     }
 
     /// obtain the camera pose in world frame for visualization 
-    pub fn get_camera_pose(&self) -> na::Isometry3<f64> {
+    pub fn get_camera_pose(&self) -> Matrix4d {
         let w_r_cam0 = self.rot * self.r_imu_cam0.transpose(); 
         let w_t_cam0 = self.rot * self.t_cam0_imu + self.p; 
-        let translation = na::Translation::from(w_t_cam0); 
-        let rotation = na::Rotation3::from_matrix(&w_r_cam0); 
-        let isometry = na::Isometry3::from_parts(translation, rotation.into());
-        isometry 
+        let mut se3 = Matrix4d::zeros(); 
+        se3.fixed_view_mut::<3,3>(0,0).copy_from(&w_r_cam0);
+        se3.fixed_view_mut::<3,1>(0,3).copy_from(&w_t_cam0); 
+        se3 
     }
 
     pub fn initialize_q(&mut self) {
@@ -150,8 +152,6 @@ impl StateServer {
 
     /// ref stereo msckf processModel
     pub fn predict(&mut self, time: f64, gyro: Vector3d, acc: Vector3d) {
-        self.state_id += 1;
-
         // initialize the orientation and Q
         if !self.is_initialized {
             self.initialize_orientation(acc);
@@ -191,26 +191,26 @@ impl StateServer {
         self.p = new_p;
 
         let f_mat = self.construct_f_mat(dt, &acc, &gyro);
-        let imu_state_cov = self.state_cov.fixed_slice::<21, 21>(0, 0).clone();
+        let imu_state_cov = self.state_cov.fixed_view::<21, 21>(0, 0).clone();
         let temp_block = f_mat.clone() * imu_state_cov * f_mat.clone().transpose();
-        self.state_cov.fixed_slice_mut::<21, 21>(0, 0).copy_from(
+        self.state_cov.fixed_view_mut::<21, 21>(0, 0).copy_from(
             &(temp_block + f_mat.clone() * self.q_mat.clone() * f_mat.clone().transpose() * dt),
         );
         if self.camera_states.len() > 0 {
             let cov_slice = f_mat.clone()
                 * self
                     .state_cov
-                    .slice((0, 21), (21, self.state_cov.ncols() - 21));
+                    .view((0, 21), (21, self.state_cov.ncols() - 21));
             self.state_cov
-                .slice_mut((0, 21), (21, self.state_cov.ncols() - 21))
+                .view_mut((0, 21), (21, self.state_cov.ncols() - 21))
                 .copy_from(&cov_slice);
 
             let cov_slice = self
                 .state_cov
-                .slice((21, 0), (self.state_cov.nrows() - 21, 21))
+                .view((21, 0), (self.state_cov.nrows() - 21, 21))
                 * f_mat.transpose();
             self.state_cov
-                .slice_mut((21, 0), (self.state_cov.nrows() - 21, 21))
+                .view_mut((21, 0), (self.state_cov.nrows() - 21, 21))
                 .copy_from(&cov_slice);
         }
     }
@@ -222,22 +222,22 @@ impl StateServer {
 
         // theta wrt theta
         f_mat
-            .fixed_slice_mut::<3, 3>(0, 0)
+            .fixed_view_mut::<3, 3>(0, 0)
             .copy_from(&(so3_exp(&(-gyro * dt))));
         // theta vs bg
-        f_mat.fixed_slice_mut::<3, 3>(0, 9).copy_from(&(-i3 * dt));
+        f_mat.fixed_view_mut::<3, 3>(0, 9).copy_from(&(-i3 * dt));
 
         // v wrt theta
         f_mat
-            .fixed_slice_mut::<3, 3>(3, 0)
+            .fixed_view_mut::<3, 3>(3, 0)
             .copy_from(&(-self.rot * skew(acc) * dt));
         // v wrt ba
         f_mat
-            .fixed_slice_mut::<3, 3>(3, 12)
+            .fixed_view_mut::<3, 3>(3, 12)
             .copy_from(&(-self.rot * dt));
 
         // p wrt v
-        f_mat.fixed_slice_mut::<3, 3>(6, 3).copy_from(&(i3 * dt));
+        f_mat.fixed_view_mut::<3, 3>(6, 3).copy_from(&(i3 * dt));
 
         f_mat
     }
@@ -265,40 +265,42 @@ impl StateServer {
             self.get_cam_wrt_imu_se3_jacobian(&c_r_i, &i_p_c, &w_r_c.transpose());
         let mut jacobian = Matrixd::zeros(6, STATE_LEN);
         jacobian
-            .fixed_slice_mut::<3, 3>(0, 0)
-            .copy_from(&dcampose_dimupose.fixed_slice::<3, 3>(0, 0));
+            .fixed_view_mut::<3, 3>(0, 0)
+            .copy_from(&dcampose_dimupose.fixed_view::<3, 3>(0, 0));
         jacobian
-            .fixed_slice_mut::<3, 3>(0, 6)
-            .copy_from(&dcampose_dimupose.fixed_slice::<3, 3>(0, 3));
+            .fixed_view_mut::<3, 3>(0, 6)
+            .copy_from(&dcampose_dimupose.fixed_view::<3, 3>(0, 3));
         jacobian
-            .fixed_slice_mut::<3, 3>(3, 0)
-            .copy_from(&dcampose_dimupose.fixed_slice::<3, 3>(3, 0));
+            .fixed_view_mut::<3, 3>(3, 0)
+            .copy_from(&dcampose_dimupose.fixed_view::<3, 3>(3, 0));
         jacobian
-            .fixed_slice_mut::<3, 3>(3, 6)
-            .copy_from(&dcampose_dimupose.fixed_slice::<3, 3>(3, 3));
+            .fixed_view_mut::<3, 3>(3, 6)
+            .copy_from(&dcampose_dimupose.fixed_view::<3, 3>(3, 3));
         jacobian
-            .fixed_slice_mut::<3, 3>(0, 15)
+            .fixed_view_mut::<3, 3>(0, 15)
             .copy_from(&Matrix3d::identity());
         jacobian
-            .fixed_slice_mut::<3, 3>(3, 18)
+            .fixed_view_mut::<3, 3>(3, 18)
             .copy_from(&Matrix3d::identity());
 
         let old_size = self.state_cov.nrows();
         let mut state_cov = Matrixd::zeros(old_size + 6, old_size + 6);
         state_cov
-            .slice_mut((0, 0), (old_size, old_size))
+            .view_mut((0, 0), (old_size, old_size))
             .copy_from(&self.state_cov);
-        let block = jacobian.clone() * self.state_cov.slice((0, 0), (21, old_size));
+        let block = jacobian.clone() * self.state_cov.view((0, 0), (21, old_size));
         state_cov
-            .slice_mut((old_size, 0), (6, old_size))
+            .view_mut((old_size, 0), (6, old_size))
             .copy_from(&block);
         state_cov
-            .slice_mut((0, old_size), (old_size, 6))
+            .view_mut((0, old_size), (old_size, 6))
             .copy_from(&(block.transpose()));
-        state_cov.slice_mut((old_size, old_size), (6, 6)).copy_from(
-            &(jacobian.clone() * self.state_cov.fixed_slice::<21, 21>(0, 0) * jacobian.transpose()),
+        state_cov.view_mut((old_size, old_size), (6, 6)).copy_from(
+            &(jacobian.clone() * self.state_cov.fixed_view::<21, 21>(0, 0) * jacobian.transpose()),
         );
         self.state_cov = state_cov;
+
+        self.state_id += 1;
     }
 
     pub fn prune_state(&mut self) {
@@ -313,28 +315,28 @@ impl StateServer {
         let new_size = STATE_LEN + self.window_size * 6;
         let mut new_state_cov = Matrixd::zeros(new_size, new_size);
         new_state_cov
-            .slice_mut((0, 0), (STATE_LEN, STATE_LEN))
-            .copy_from(&self.state_cov.slice((0, 0), (STATE_LEN, STATE_LEN)));
+            .view_mut((0, 0), (STATE_LEN, STATE_LEN))
+            .copy_from(&self.state_cov.view((0, 0), (STATE_LEN, STATE_LEN)));
         new_state_cov
-            .slice_mut((0, STATE_LEN), (STATE_LEN, self.window_size * 6))
+            .view_mut((0, STATE_LEN), (STATE_LEN, self.window_size * 6))
             .copy_from(
                 &self
                     .state_cov
-                    .slice((0, cam_state_end), (STATE_LEN, self.window_size * 6)),
+                    .view((0, cam_state_end), (STATE_LEN, self.window_size * 6)),
             );
         new_state_cov
-            .slice_mut((STATE_LEN, 0), (self.window_size * 6, STATE_LEN))
+            .view_mut((STATE_LEN, 0), (self.window_size * 6, STATE_LEN))
             .copy_from(
                 &self
                     .state_cov
-                    .slice((cam_state_end, 0), (self.window_size * 6, STATE_LEN)),
+                    .view((cam_state_end, 0), (self.window_size * 6, STATE_LEN)),
             );
         new_state_cov
-            .slice_mut(
+            .view_mut(
                 (STATE_LEN, STATE_LEN),
                 (self.window_size * 6, self.window_size * 6),
             )
-            .copy_from(&self.state_cov.slice(
+            .copy_from(&self.state_cov.view(
                 (cam_state_end, cam_state_end),
                 (self.window_size * 6, self.window_size * 6),
             ));
@@ -349,10 +351,10 @@ impl StateServer {
     ) -> na::Matrix6<f64> {
         let mut p_cxi_p_ixi = na::Matrix6::<f64>::zeros();
         p_cxi_p_ixi
-            .fixed_slice_mut::<3, 3>(0, 0)
+            .fixed_view_mut::<3, 3>(0, 0)
             .copy_from(&(-1.0 * c_r_i * skew(i_p_c)));
-        p_cxi_p_ixi.fixed_slice_mut::<3, 3>(3, 0).copy_from(c_r_i);
-        p_cxi_p_ixi.fixed_slice_mut::<3, 3>(0, 3).copy_from(c_r_w);
+        p_cxi_p_ixi.fixed_view_mut::<3, 3>(3, 0).copy_from(c_r_i);
+        p_cxi_p_ixi.fixed_view_mut::<3, 3>(0, 3).copy_from(c_r_w);
         p_cxi_p_ixi
     }
 
@@ -371,6 +373,8 @@ impl StateServer {
     }
 
     pub fn update(&mut self, tracks: &[Track]) {
+        let mut successful_update_count = 0;
+
         let feature_update_number = 50;
         let mut rng = Xoshiro256PlusPlus::seed_from_u64(0);
 
@@ -439,7 +443,7 @@ impl StateServer {
                     // Compute the Jacobians of the reprojection error wrt the state
                     let mut temp_mat = Matrixd::zeros(3, 4);
                     temp_mat
-                        .slice_mut((0, 0), (3, 3))
+                        .view_mut((0, 0), (3, 3))
                         .copy_from(&Matrix3d::identity());
 
                     let p_c0_jacobi = p_c0;
@@ -479,24 +483,30 @@ impl StateServer {
                         .position(|&v| v == pose.id)
                         .unwrap();
                     jacobian_x
-                        .slice_mut(
+                        .view_mut(
                             (observation_index * 4, STATE_LEN + 6 * camera_index),
                             (4, 6),
                         )
                         .copy_from(&jacobian_x_feature);
                     jacobian_f
-                        .slice_mut((observation_index * 4, 0), (4, 3))
+                        .view_mut((observation_index * 4, 0), (4, 3))
                         .copy_from(&jacobian_f_feature);
                     residual
-                        .slice_mut((observation_index * 4, 0), (4, 1))
+                        .view_mut((observation_index * 4, 0), (4, 1))
                         .copy_from(&residual_feature);
                 }
 
                 // Project the residual and Jacobians onto the nullspace
-                let svd = na::linalg::SVD::new(jacobian_f.clone(), true, true);
+                // let svd = na::linalg::SVD::new(jacobian_f.clone(), true, true);
+                let svd = LapackSVD::new(jacobian_f);
+                if svd.is_none() {
+                    continue; 
+                }
+                let svd = svd.unwrap(); 
+
                 // U matrix
-                let u_mat = svd.u.unwrap();
-                let a_mat = u_mat.slice((0, 3), (u_mat.nrows(), u_mat.ncols() - 3));
+                let u_mat = svd.u;
+                let a_mat = u_mat.view((0, 3), (u_mat.nrows(), u_mat.ncols() - 3));
                 let jacobian_x = a_mat.transpose() * jacobian_x;
                 let residual = a_mat.transpose() * residual;
 
@@ -523,7 +533,7 @@ impl StateServer {
 
                 // update the extrinsics
                 let delta_i_trans_c =
-                    so3_exp(&Vector3d::new(delta_x[15], delta_x[16], delta_x[17]));
+                    se3_exp(&Vector6d::new(delta_x[15], delta_x[16], delta_x[17], delta_x[18], delta_x[19], delta_x[20]));
                 // need to update P first using old R
                 let mut i_r_c = self.r_imu_cam0.transpose();
                 let i_p_c = self.t_cam0_imu;
@@ -536,17 +546,20 @@ impl StateServer {
                     + i_p_c;
                 self.t_cam0_imu = i_p_c;
                 // update R
-                i_r_c = i_r_c * delta_i_trans_c.fixed_slice::<3, 3>(0, 0);
+                i_r_c = i_r_c * delta_i_trans_c.fixed_view::<3, 3>(0, 0);
                 self.r_imu_cam0 = i_r_c.transpose();
 
                 // Update the camera states
                 for index in camera_indices.iter() {
-                    let delta_camera = Vector3d::new(
+                    let delta_camera = na::Vector6::new(
                         delta_x[STATE_LEN + index * 6],
                         delta_x[STATE_LEN + index * 6 + 1],
                         delta_x[STATE_LEN + index * 6 + 2],
+                        delta_x[STATE_LEN + index * 6 + 3],
+                        delta_x[STATE_LEN + index * 6 + 4],
+                        delta_x[STATE_LEN + index * 6 + 5],
                     );
-                    let delta_w_trans_cam = so3_exp(&delta_camera);
+                    let delta_w_trans_cam = se3_exp(&delta_camera);
                     let camera_state = self.camera_states.get(index).unwrap().clone();
                     let orientation = camera_state.orientation;
                     let position = camera_state.position;
@@ -559,13 +572,16 @@ impl StateServer {
                         )
                         + position;
                     camera_state.orientation =
-                        orientation * delta_w_trans_cam.fixed_slice::<3, 3>(0, 0);
+                        orientation * delta_w_trans_cam.fixed_view::<3, 3>(0, 0);
                 }
 
                 // Update state covariance
-                let i_kh_mat = Matrixd::identity(k_mat.nrows(), k_mat.ncols()) - k_mat * jacobian_x;
+                let i_kh_mat = Matrixd::identity(k_mat.nrows(), k_mat.nrows()) - k_mat * jacobian_x;
                 let state_cov = self.state_cov.clone(); 
                 self.state_cov = i_kh_mat * state_cov; 
+
+                successful_update_count += 1;
+                if successful_update_count >= 5 { break }
             }
         }
     }

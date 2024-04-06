@@ -69,7 +69,8 @@ pub fn triangulate(
             let pose = &camera_poses[j]; 
             let ip = &normalized_coordinates[i][j];
             let ip = Vector3d::new(ip[0], ip[1], 1.);
-            let vj = pose.orientation * ip;
+            // NOTE, need to use normalize, since vj is a unit vector for direction 
+            let vj = pose.orientation * ip.normalize();
             let a = Matrix3d::identity() - vj * vj.transpose();
             s += a;
             t += a * pose.position;

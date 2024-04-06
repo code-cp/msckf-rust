@@ -89,8 +89,8 @@ impl Detector {
                         break 'detection;
                     }
                 }
-                threshold /= 2;
             }
+            threshold /= 2;
         }
     }
 

@@ -51,9 +51,9 @@ pub fn visualize_detected_features(
         cv2::imgproc::draw_marker(
             &mut color_mat,
             point_cv,
-            cv2::core::Scalar::new(0.0, 255.0, 0.0, 0.0),
+            cv2::core::Scalar::new(255.0, 0.0, 0.0, 0.0),
             1,
-            1,
+            5,
             1,
             1,
         )?;

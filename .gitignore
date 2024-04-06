@@ -5,3 +5,4 @@ logs/
 wget-log
 assets/ 
 .vscode/ 
+*.txt
