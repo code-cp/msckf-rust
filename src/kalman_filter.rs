@@ -322,7 +322,7 @@ impl StateServer {
             .view_mut((0, old_size), (old_size, 6))
             .copy_from(&(block.transpose()));
         state_cov.view_mut((old_size, old_size), (6, 6)).copy_from(
-            &(jacobian.clone() * self.state_cov.fixed_view::<21, 21>(0, 0) * jacobian.transpose()),
+            &(jacobian.clone() * self.state_cov.view((0, 0), (STATE_LEN, STATE_LEN)) * jacobian.transpose()),
         );
         self.state_cov = state_cov;
     }
@@ -364,7 +364,7 @@ impl StateServer {
                 (cam_state_end, cam_state_end),
                 (self.window_size * 6, self.window_size * 6),
             ));
-        mem::swap(&mut self.state_cov, &mut new_state_cov);
+        self.state_cov = new_state_cov;
     }
 
     fn get_cam_wrt_imu_se3_jacobian(

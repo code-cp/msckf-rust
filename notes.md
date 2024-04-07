@@ -5,3 +5,4 @@
 - other msckf related repos 
    - https://github.com/WeilongXia/MSCKF_Simulation/tree/master 
 - groundtruth on the V1_01_easy dataset is not accurate in its orientation estimate https://docs.openvins.com/gs-datasets.html
+- slam tutorial https://github.com/duyongquan/LTSLAM
