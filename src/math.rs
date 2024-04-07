@@ -111,7 +111,8 @@ pub fn se3_exp(v: &Vector6d) -> Matrix4d {
     let phi = Vector3d::new(v[3], v[4], v[5]); 
 
     let theta = phi.norm();
-    let n = phi / theta; 
+    // avoid dividing by zero 
+    let n = phi / (theta + 1e-5); 
     let exp_phi_skew = theta.cos() * Matrix3d::identity() 
         + (1.0 - theta.cos()) * n * n.transpose() 
         + theta.sin() * skew(&n);  

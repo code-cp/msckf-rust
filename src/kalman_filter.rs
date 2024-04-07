@@ -48,7 +48,7 @@ pub struct StateServer {
     last_time: Option<f64>,
     is_initialized: bool,
     camera_states: BTreeMap<usize, CameraState>,
-    state_id: usize,
+    pub state_id: usize,
     pub feature_map: HashMap<usize, Vector3d>,
     observation_noise: f64,
 }
@@ -141,13 +141,17 @@ impl StateServer {
         let w = n * (u_norm * v_norm + (u.transpose() * v)[(0, 0)]);
         let xyz = n * u.cross(&v);
 
-        // quaternion is represented by wxyz
-        // Hamilton convention
-        // from world to IMU
-        // in the order (w, i, j, k)
-        let q = na::Quaternion::new(w, xyz[(0, 0)], xyz[(1, 0)], xyz[(2, 0)]);
-        let q = na::UnitQuaternion::from_quaternion(q);
-        self.rot = q.to_rotation_matrix().into();
+        // // quaternion is represented by wxyz
+        // // Hamilton convention
+        // // from world to IMU
+        // // in the order (w, i, j, k)
+        // let q = na::Quaternion::new(w, xyz[(0, 0)], xyz[(1, 0)], xyz[(2, 0)]);
+        // let q = na::UnitQuaternion::from_quaternion(q);
+        // // from IMU to world 
+        // self.rot = q.to_rotation_matrix().transpose().into();
+
+        let q = Vector4d::new(w, xyz[(0, 0)], xyz[(1, 0)], xyz[(2, 0)]); 
+        self.rot = to_rotation_matrix(q).transpose(); 
     }
 
     /// ref stereo msckf processModel
@@ -299,8 +303,6 @@ impl StateServer {
             &(jacobian.clone() * self.state_cov.fixed_view::<21, 21>(0, 0) * jacobian.transpose()),
         );
         self.state_cov = state_cov;
-
-        self.state_id += 1;
     }
 
     pub fn prune_state(&mut self) {
@@ -381,23 +383,17 @@ impl StateServer {
         let camera_frame_indices = self.get_camera_indices();
 
         'track: for track in tracks.choose_multiple(&mut rng, feature_update_number) {
-            let mut frame_index = 0;
             let mut normalized_coordinates = Vec::<[Vector2d; 2]>::new();
             let mut camera_poses = Vec::<&CameraState>::new();
             for point in &track.points {
-                if point.frame_number < camera_frame_indices[0] {
-                    continue;
+                match camera_frame_indices.binary_search(&point.frame_number) {
+                    Ok(frame_index) => {
+                        normalized_coordinates.push(point.normalized_coordinates);
+                        let camera_idx = camera_frame_indices[frame_index]; 
+                        camera_poses.push(&self.camera_states.get(&camera_idx).unwrap());
+                    }
+                    Err(_) => {continue;}
                 }
-                while frame_index < camera_frame_indices.len()
-                    && camera_frame_indices[frame_index] < point.frame_number
-                {
-                    frame_index += 1;
-                }
-                if point.frame_number != camera_frame_indices[frame_index] {
-                    continue;
-                }
-                normalized_coordinates.push(point.normalized_coordinates);
-                camera_poses.push(&self.camera_states.get(&frame_index).unwrap());
             }
 
             if normalized_coordinates.len() == 0 {
@@ -550,7 +546,7 @@ impl StateServer {
                 self.r_imu_cam0 = i_r_c.transpose();
 
                 // Update the camera states
-                for index in camera_indices.iter() {
+                for (index, camera_index) in camera_indices.iter().enumerate() {
                     let delta_camera = na::Vector6::new(
                         delta_x[STATE_LEN + index * 6],
                         delta_x[STATE_LEN + index * 6 + 1],
@@ -560,10 +556,10 @@ impl StateServer {
                         delta_x[STATE_LEN + index * 6 + 5],
                     );
                     let delta_w_trans_cam = se3_exp(&delta_camera);
-                    let camera_state = self.camera_states.get(index).unwrap().clone();
+                    let camera_state = self.camera_states.get(camera_index).unwrap().clone();
                     let orientation = camera_state.orientation;
                     let position = camera_state.position;
-                    let camera_state = self.camera_states.get_mut(index).unwrap(); 
+                    let camera_state = self.camera_states.get_mut(camera_index).unwrap(); 
                     camera_state.position = orientation
                         * Vector3d::new(
                             delta_w_trans_cam[(0, 3)],

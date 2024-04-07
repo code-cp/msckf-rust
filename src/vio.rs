@@ -114,8 +114,14 @@ impl VIO {
     }
 
     pub fn process_frame(&mut self, frame: &InputFrame) -> Result<()> {
+        // update state ids
+        self.frame_number += 1; 
+        self.state_server.state_id += 1;
+
+        // augment state 
         self.state_server.augment_state();
 
+        // track features 
         let mut unused_frame = None;
         if self.frames.len() == 2 {
             unused_frame = self.frames.pop_front();
@@ -131,8 +137,10 @@ impl VIO {
         self.tracker
             .process(frame0, frame1, &self.cameras, self.frame_number);
 
+        // update step 
         self.state_server.update(&self.tracker.tracks); 
 
+        // prune state 
         self.state_server.prune_state();
 
         // show detected features

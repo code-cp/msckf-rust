@@ -78,6 +78,9 @@ pub fn triangulate(
     }
 
     let inv_s = s.try_inverse()?;
+    if inv_s[(0,0)].is_nan() {
+        return None; 
+    }
     let position = inv_s * t;
 
     Some(position)
