@@ -375,8 +375,6 @@ impl StateServer {
     }
 
     pub fn update(&mut self, tracks: &[Track]) {
-        let mut successful_update_count = 0;
-
         let feature_update_number = 50;
         let mut rng = Xoshiro256PlusPlus::seed_from_u64(0);
 
@@ -575,9 +573,6 @@ impl StateServer {
                 let i_kh_mat = Matrixd::identity(k_mat.nrows(), k_mat.nrows()) - k_mat * jacobian_x;
                 let state_cov = self.state_cov.clone(); 
                 self.state_cov = i_kh_mat * state_cov; 
-
-                successful_update_count += 1;
-                if successful_update_count >= 5 { break }
             }
         }
     }
