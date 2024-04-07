@@ -244,7 +244,7 @@ fn image_difference(
     }
     fill_grid(level, range, center, &mut it);
     *it *= -1.;
-    *it += i0.slice((1, 1), (it.nrows(), it.ncols()));
+    *it += i0.view((1, 1), (it.nrows(), it.ncols()));
     Some(())
 }
 
@@ -351,7 +351,7 @@ fn compute_initial_guess(
 }
 
 fn transform_vector3d(m: &Matrix4d, v: &Vector3d) -> Vector3d {
-    m.fixed_slice::<3, 3>(0, 0) * v + m.fixed_slice::<3, 1>(0, 3)
+    m.fixed_view::<3, 3>(0, 0) * v + m.fixed_view::<3, 1>(0, 3)
 }
 
 #[cfg(test)]

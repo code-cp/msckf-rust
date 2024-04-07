@@ -50,7 +50,7 @@ impl CameraModel for PinholeModel {
                 z_inv,
                 -ray[1] * z_inv.powi(2);
             );
-            Some(self.camera_matrix.fixed_slice::<2, 2>(0, 0) * x_xbar_derivative)
+            Some(self.camera_matrix.fixed_view::<2, 2>(0, 0) * x_xbar_derivative)
         } else {
             None
         };

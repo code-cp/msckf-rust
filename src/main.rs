@@ -2,18 +2,14 @@ use anyhow::{anyhow, bail, Context as AnyhowContext, Result};
 use clap::Parser;
 use msckf_rust::camera::CameraKind;
 use msckf_rust::pinhole::PinholeModel;
-use ndarray as nd;
 use std::path::Path;
 
 use indicatif::ProgressStyle;
 use tracing::info_span;
-use tracing::instrument;
-use tracing::Span;
 use tracing_indicatif::span_ext::IndicatifSpanExt;
 use tracing_indicatif::IndicatifLayer;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::{filter::LevelFilter, prelude::*};
 
 use msckf_rust::camera::Camera;
 use msckf_rust::config::*;
