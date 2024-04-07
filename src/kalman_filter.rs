@@ -1,5 +1,4 @@
 use nalgebra as na;
-use nalgebra::{Dynamic, Matrix, SVD};
 use nalgebra_lapack::SVD as LapackSVD;
 use rand::seq::SliceRandom;
 use rand_xoshiro::rand_core::SeedableRng;
@@ -19,6 +18,12 @@ static STATE_LEN: usize = 21;
 pub struct Extrinsics {
     pub trans_imu_cam0: Matrix4d,
     pub trans_cam0_cam1: Matrix4d,
+}
+
+#[derive(Debug)]
+enum InitializationMethod {
+    FromImuData, 
+    FromGroundtruth, 
 }
 
 #[derive(Debug)]
@@ -53,10 +58,12 @@ pub struct StateServer {
     pub feature_map: HashMap<usize, Vector3d>,
     observation_noise: f64,
     pub stationary: Stationary,
+    initialization_method: InitializationMethod, 
+    first_pose_gt: Matrix4d, 
 }
 
 impl StateServer {
-    pub fn new(extrinsics: &Extrinsics) -> Self {
+    pub fn new(extrinsics: &Extrinsics, first_pose_gt: &Matrix4d) -> Self {
         let config = CONFIG.get().unwrap();
 
         let gravity = Vector3d::new(0., 0., -config.gravity);
@@ -78,6 +85,8 @@ impl StateServer {
         let t_cam0_cam1 = trans_cam0_cam1.fixed_view::<3, 1>(0, 3);
 
         let observation_noise: f64 = (0.035_f64).powi(2);
+
+        let initialization_method = InitializationMethod::FromGroundtruth; 
 
         Self {
             p: Vector3d::zeros(),
@@ -101,6 +110,8 @@ impl StateServer {
             feature_map: HashMap::new(),
             observation_noise,
             stationary: Stationary::new(),
+            initialization_method, 
+            first_pose_gt: first_pose_gt.to_owned(), 
         }
     }
 
@@ -161,7 +172,15 @@ impl StateServer {
     pub fn predict(&mut self, time: f64, gyro: Vector3d, acc: Vector3d) {
         // initialize the orientation and Q
         if !self.is_initialized {
-            self.initialize_orientation(acc);
+            match self.initialization_method {
+                InitializationMethod::FromGroundtruth => {
+                    self.p = self.first_pose_gt.fixed_view::<3,1>(0,3).into(); 
+                    self.rot = self.first_pose_gt.fixed_view::<3,3>(0,0).into();
+                }
+                InitializationMethod::FromImuData => {
+                    self.initialize_orientation(acc);
+                }
+            }
             self.initialize_q();
             self.is_initialized = true;
         }
@@ -392,7 +411,20 @@ impl StateServer {
         let _ = self.kf_update(&jacobian_x.into(), &residual.into()); 
     }
 
-    pub fn update(&mut self, tracks: &[Track]) {
+    pub fn update_pose(&mut self, pose: &Matrix4d) {
+        let mut jacobian_x = Matrixd::zeros(3, STATE_LEN + 6 * self.camera_states.len());
+        
+        // residual is z - predicted value 
+        let mut residual = Vectord::zeros(0);
+        residual.resize_vertically_mut(3, 0.);
+        let position_measurement = pose.fixed_view::<3,1>(0,3);  
+        residual.fixed_view_mut::<3, 1>(0, 0).copy_from(&(position_measurement - self.p));
+
+        jacobian_x.fixed_view_mut::<3, 3>(0, 6).copy_from(&Matrix3d::identity());
+        let _ = self.kf_update(&jacobian_x.into(), &residual.into());
+    }
+
+    pub fn update_feature(&mut self, tracks: &[Track]) {
         let feature_update_number = 50;
         let mut rng = Xoshiro256PlusPlus::seed_from_u64(0);
 

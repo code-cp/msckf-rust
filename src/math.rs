@@ -16,6 +16,7 @@ pub fn skew(v: &na::Vector3<f64>) -> Matrix3d {
 
 /// ref Quaternion kinematics for the error-state Kalman filter
 /// eq. 115
+/// quaternion format wxyz 
 pub fn to_rotation_matrix(q: Vector4d) -> Matrix3d {
     Matrix3d::new(
         q[0] * q[0] + q[1] * q[1] - q[2] * q[2] - q[3] * q[3],
@@ -145,23 +146,65 @@ pub fn odot_operator(x: &Vector4d) -> Matrixd {
     result
 }
 
+/// ref <https://github.com/raulmur/ORB_SLAM2/issues/766#issuecomment-516910030>
 pub fn rotation_to_euler(rotation: &Matrix3d) -> Vector3d {
-    let sy = (rotation[(0, 0)].powi(2) + rotation[(1, 0)].powi(2)).sqrt();
-    let singular = sy < 1e-6;
+    let m00 = rotation[(0, 0)];
+    let m02 = rotation[(0, 2)];
+    let m10 = rotation[(1, 0)];
+    let m11 = rotation[(1, 1)];
+    let m12 = rotation[(1, 2)];
+    let m20 = rotation[(2, 0)];
+    let m22 = rotation[(2, 2)];
 
-    let (x, y, z) = if !singular {
-        (
-            rotation[(2, 1)].atan2(rotation[(2, 2)]),
-            -rotation[(2, 0)].atan2(sy),
-            rotation[(1, 0)].atan2(rotation[(0, 0)]),
-        )
+    let (bank, attitude, heading) = if m10 > 0.998 { // singularity at north pole
+        (0.0, std::f64::consts::FRAC_PI_2, m02.atan2(m22))
+    } else if m10 < -0.998 { // singularity at south pole
+        (0.0, -std::f64::consts::FRAC_PI_2, m02.atan2(m22))
     } else {
         (
-            rotation[(1, 2)].atan2(rotation[(1, 1)]),
-            -rotation[(2, 0)].atan2(sy),
-            0.0,
+            (-m12).atan2(m11),
+            m10.asin(),
+            (-m20).atan2(m00),
         )
     };
 
-    Vector3d::new(x, y, z)
+    Vector3d::new(bank, attitude, heading)
+}
+
+pub fn matrix_to_quaternion(matrix: &Matrix3d) -> na::Quaternion<f64> {
+    let trace = matrix[(0, 0)] + matrix[(1, 1)] + matrix[(2, 2)];
+
+    if trace > 0.0 {
+        let s = (0.5 / trace.sqrt()).sqrt();
+        na::Quaternion::new(
+            (matrix[(2, 1)] - matrix[(1, 2)]) * s,
+            (matrix[(0, 2)] - matrix[(2, 0)]) * s,
+            (matrix[(1, 0)] - matrix[(0, 1)]) * s,
+            0.25 / s,
+        )
+    } else if matrix[(0, 0)] > matrix[(1, 1)] && matrix[(0, 0)] > matrix[(2, 2)] {
+        let s = (2.0 * (1.0 + matrix[(0, 0)] - matrix[(1, 1)] - matrix[(2, 2)])).sqrt();
+        na::Quaternion::new(
+            0.25 * s,
+            (matrix[(0, 1)] + matrix[(1, 0)]) / s,
+            (matrix[(0, 2)] + matrix[(2, 0)]) / s,
+            (matrix[(2, 1)] - matrix[(1, 2)]) / s,
+        )
+    } else if matrix[(1, 1)] > matrix[(2, 2)] {
+        let s = (2.0 * (1.0 + matrix[(1, 1)] - matrix[(0, 0)] - matrix[(2, 2)])).sqrt();
+        na::Quaternion::new(
+            (matrix[(0, 1)] + matrix[(1, 0)]) / s,
+            0.25 * s,
+            (matrix[(1, 2)] + matrix[(2, 1)]) / s,
+            (matrix[(0, 2)] - matrix[(2, 0)]) / s,
+        )
+    } else {
+        let s = (2.0 * (1.0 + matrix[(2, 2)] - matrix[(0, 0)] - matrix[(1, 1)])).sqrt();
+        na::Quaternion::new(
+            (matrix[(0, 2)] + matrix[(2, 0)]) / s,
+            (matrix[(1, 2)] + matrix[(2, 1)]) / s,
+            0.25 * s,
+            (matrix[(1, 0)] - matrix[(0, 1)]) / s,
+        )
+    }
 }

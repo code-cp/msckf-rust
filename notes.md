@@ -2,3 +2,6 @@
 - issues with opencv crate on mac 
    - https://gist.github.com/aaqidmasoodi/da698ab103e4fbb180ed965988bea734
    - https://github.com/twistedfall/opencv-rust/issues/493
+- other msckf related repos 
+   - https://github.com/WeilongXia/MSCKF_Simulation/tree/master 
+- groundtruth on the V1_01_easy dataset is not accurate in its orientation estimate https://docs.openvins.com/gs-datasets.html

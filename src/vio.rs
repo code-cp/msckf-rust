@@ -32,12 +32,12 @@ pub struct VIO {
 }
 
 impl VIO {
-    pub fn new(cameras: Vec<Camera>, extrinsics: &Extrinsics) -> Result<Self> {
+    pub fn new(cameras: Vec<Camera>, extrinsics: &Extrinsics, first_pose_gt: &Matrix4d) -> Result<Self> {
         // visualization
         let recorder = RecordingStreamBuilder::new("msckf")
             .save("./logs/my_recording.rrd")
             .unwrap();
-        let state_server = StateServer::new(extrinsics);
+        let state_server = StateServer::new(extrinsics, first_pose_gt);
         let cam0_to_cam1 = extrinsics.trans_cam0_cam1;
 
         Ok(Self {
@@ -84,6 +84,9 @@ impl VIO {
             InputSensor::Accelerometer(acc) => {
                 self.last_acc = Some((data.time, acc));
             }
+            InputSensor::Pose(pose) => {
+                self.process_pose(&pose);
+            }
         }
 
         // Very basic sample synchronization that only aims to cover the case that
@@ -104,6 +107,11 @@ impl VIO {
 
     pub fn process_imu(&mut self, time: f64, gyro: Vector3d, acc: Vector3d) {
         self.state_server.predict(time, gyro, acc);
+    }
+
+    pub fn process_pose(&mut self, pose: &Matrix4d) {
+        // update step 
+        self.state_server.update_pose(pose); 
     }
 
     pub fn process_frame(&mut self, frame: &InputFrame) -> Result<()> {
@@ -136,7 +144,7 @@ impl VIO {
         }
 
         // update step 
-        self.state_server.update(&self.tracker.tracks); 
+        self.state_server.update_feature(&self.tracker.tracks); 
 
         // prune state 
         self.state_server.prune_state();
@@ -163,16 +171,19 @@ impl VIO {
 
         // show camera pose
         let w_tr_c = self.state_server.get_camera_pose();
-        let euler_angles = rotation_to_euler(&w_tr_c.fixed_view::<3,3>(0,0).into());
-        let arrow = rerun::Arrows3D::from_vectors(
-            [(euler_angles.x as f32, euler_angles.y as f32, euler_angles.z as f32)]
-            ).
-            with_origins([(
-                w_tr_c[(0,3)] as f32,
-                w_tr_c[(1,3)] as f32,
-                w_tr_c[(2,3)] as f32,
-            )]);
-        self.recorder.log("world/camera/pose", &arrow)?;
+        let translation = w_tr_c.fixed_view::<3,1>(0,3); 
+        let rot = w_tr_c.fixed_view::<3,3>(0,0); 
+        let quat = matrix_to_quaternion(&rot.into()); 
+        self.recorder.log(
+            "world/camera",
+            &rerun::Transform3D::from_translation_rotation(rerun::Vec3D::new(
+                translation.x as f32, 
+                translation.y as f32, 
+                translation.z as f32, 
+            ), rerun::Rotation3D::Quaternion(
+                rerun::Quaternion::from_wxyz([quat.coords[3] as f32, quat.coords[0] as f32, quat.coords[1] as f32, quat.coords[2] as f32])
+            )),
+        )?;
 
         Ok(())
     }

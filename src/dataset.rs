@@ -1,8 +1,6 @@
 use anyhow::{anyhow, bail, Context as AnyhowContext, Result};
 use log::{debug, error, info, warn, LevelFilter};
-use serde::Deserialize;
 use serde_json::{from_str, Value};
-use std::fmt;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
@@ -10,12 +8,14 @@ use std::path::Path;
 use crate::image::Image;
 use crate::my_types::*;
 use crate::video::VideoInput;
+use crate::math::to_rotation_matrix; 
 
 pub struct Dataset {
     reader: BufReader<File>,
     line: String,
     video_inputs: Vec<VideoInput>,
     pub length: u64,
+    pub first_pose_gt: Matrix4d, 
 }
 
 #[derive(Debug)]
@@ -28,6 +28,8 @@ pub enum InputSensor<'a> {
     Gyroscope(Vector3d),
     Accelerometer(Vector3d),
     Frame(InputFrame<'a>),
+    /// pose from groundtruth 
+    Pose(Matrix4d),
 }
 
 #[derive(Debug)]
@@ -36,7 +38,7 @@ pub struct SensorData<'a> {
     pub sensor: InputSensor<'a>,
 }
 
-fn get_groundtruth(file: File) -> u64 {
+fn get_dataset_length(file: File) -> u64 {
     let reader = BufReader::new(file);
     let mut total_items = 0;
     for line in reader.lines() {
@@ -51,10 +53,51 @@ fn get_groundtruth(file: File) -> u64 {
     total_items
 }
 
+fn load_pose_from_groundtruth(groundtruth: &Value) -> Matrix4d {
+    let mut pose = Matrix4d::zeros(); 
+
+    let position = groundtruth.get("position").unwrap().clone(); 
+    let orientation = groundtruth.get("orientation").unwrap().clone(); 
+
+    if let (Some(px), Some(py), Some(pz)) = (position.get("x").and_then(|v| v.as_f64()),
+        position.get("y").and_then(|v| v.as_f64()),
+        position.get("z").and_then(|v| v.as_f64())) {
+        pose.fixed_view_mut::<3,1>(0,3).copy_from(&Vector3d::new(px, py, pz)); 
+    }
+
+    if let (Some(x), Some(y), Some(z), Some(w)) = (orientation.get("x").and_then(|v| v.as_f64()),
+        orientation.get("y").and_then(|v| v.as_f64()),
+        orientation.get("z").and_then(|v| v.as_f64()),
+        orientation.get("w").and_then(|v| v.as_f64())) {
+        let rotation_matrix = to_rotation_matrix(Vector4d::new(w, x, y, z)); 
+        pose.fixed_view_mut::<3,3>(0,0).copy_from(&rotation_matrix); 
+    }
+
+    pose
+}
+
+pub fn get_first_pose(file: File) -> Matrix4d {
+    let reader = BufReader::new(file);
+    let mut pose = Matrix4d::zeros(); 
+    for line in reader.lines() {
+        if let Ok(line) = line {
+            if let Ok(json) = from_str::<Value>(&line) {
+                if let Some(groundtruth) = json.get("groundTruth") {
+                    pose = load_pose_from_groundtruth(groundtruth);
+                    break; 
+                }
+            }
+        }
+    }
+
+    pose
+}
+
 impl Dataset {
     pub fn new(path: &Path) -> Result<Dataset> {
         let file: File = File::open(path.join("data.jsonl"))?;
-        let length = get_groundtruth(File::open(path.join("data.jsonl")).unwrap());
+        let length = get_dataset_length(File::open(path.join("data.jsonl")).unwrap());
+        let first_pose_gt = get_first_pose(File::open(path.join("data.jsonl")).unwrap()); 
 
         let video_inputs = vec![
             VideoInput::new(&path.join("data.mp4"))?,
@@ -66,6 +109,7 @@ impl Dataset {
             line: String::new(),
             video_inputs,
             length,
+            first_pose_gt, 
         })
     }
 
@@ -133,8 +177,13 @@ impl Dataset {
                     time,
                     sensor: InputSensor::Frame(input_frame),
                 }));
-            } else if let Some(_) = value.get("groundTruth") {
-                // pass
+            } else if let Some(groundtruth) = value.get("groundTruth") {
+                let pose = load_pose_from_groundtruth(groundtruth); 
+                
+                return Ok(Some(SensorData {
+                    time,
+                    sensor: InputSensor::Pose(pose),
+                }));
             } else {
                 warn!("Unrecognised data format {}", self.line);
                 continue;
