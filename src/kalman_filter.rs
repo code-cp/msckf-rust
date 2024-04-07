@@ -1,5 +1,6 @@
 use nalgebra as na;
 use nalgebra_lapack::SVD as LapackSVD;
+use nalgebra_lapack::QR as LapackQR;
 use rand::seq::SliceRandom;
 use rand_xoshiro::rand_core::SeedableRng;
 use rand_xoshiro::Xoshiro256PlusPlus;
@@ -590,6 +591,18 @@ impl StateServer {
     }
 
     fn kf_update(&mut self, jacobian_x: &Matrixd, residual: &Vectord) -> Vectord {
+        // QR decomposition
+        let mut jacobian_x = jacobian_x; 
+        let mut residual = residual;    
+
+        if jacobian_x.nrows() > jacobian_x.ncols() {
+            let qr = LapackQR::new(jacobian_x);
+            if let Some(qr) = qr {
+                jacobian_x = qr.r; 
+                residual = qr.q.transpose() * mem::take(residual); 
+            }
+        }
+
         // perform update step
         let p_mat = self.state_cov.clone();
         let jacobian_x_transpose = jacobian_x.transpose();
@@ -630,15 +643,18 @@ impl StateServer {
                 delta_i_trans_c[(2, 3)],
             )
             + i_p_c;
-        self.t_cam0_imu = i_p_c;
-        // update R
+
+        // update R via right perturbation 
         i_r_c = i_r_c * delta_i_trans_c.fixed_view::<3, 3>(0, 0);
         self.r_imu_cam0 = i_r_c.transpose();
 
         // Update state covariance
         let i_kh_mat = Matrixd::identity(k_mat.nrows(), k_mat.nrows()) - k_mat * jacobian_x;
         let state_cov = self.state_cov.clone();
-        self.state_cov = i_kh_mat * state_cov;
+        let state_cov = i_kh_mat * state_cov;
+         
+        // Fix the covariance to be symmetric
+        self.state_cov = (state_cov + state_cov.transpose()) / 2.0; 
 
         return delta_x;
     } 
