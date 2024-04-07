@@ -1,1 +1,4 @@
 - [fast detector](https://en.wikipedia.org/wiki/Features_from_accelerated_segment_test)
+- issues with opencv crate on mac 
+   - https://gist.github.com/aaqidmasoodi/da698ab103e4fbb180ed965988bea734
+   - https://github.com/twistedfall/opencv-rust/issues/493

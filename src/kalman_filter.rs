@@ -1,5 +1,5 @@
 use nalgebra as na;
-use nalgebra::{SVD, Dynamic, Matrix};
+use nalgebra::{Dynamic, Matrix, SVD};
 use nalgebra_lapack::SVD as LapackSVD;
 use rand::seq::SliceRandom;
 use rand_xoshiro::rand_core::SeedableRng;
@@ -12,7 +12,7 @@ use crate::config::*;
 use crate::feature::{triangulate, Track};
 use crate::math::*;
 use crate::my_types::*;
-use crate::stationary::*; 
+use crate::stationary::*;
 
 static STATE_LEN: usize = 21;
 
@@ -52,7 +52,7 @@ pub struct StateServer {
     pub state_id: usize,
     pub feature_map: HashMap<usize, Vector3d>,
     observation_noise: f64,
-    pub stationary: Stationary, 
+    pub stationary: Stationary,
 }
 
 impl StateServer {
@@ -100,18 +100,18 @@ impl StateServer {
             state_id: 0,
             feature_map: HashMap::new(),
             observation_noise,
-            stationary: Stationary::new(), 
+            stationary: Stationary::new(),
         }
     }
 
-    /// obtain the camera pose in world frame for visualization 
+    /// obtain the camera pose in world frame for visualization
     pub fn get_camera_pose(&self) -> Matrix4d {
-        let w_r_cam0 = self.rot * self.r_imu_cam0.transpose(); 
-        let w_t_cam0 = self.rot * self.t_cam0_imu + self.p; 
-        let mut se3 = Matrix4d::zeros(); 
-        se3.fixed_view_mut::<3,3>(0,0).copy_from(&w_r_cam0);
-        se3.fixed_view_mut::<3,1>(0,3).copy_from(&w_t_cam0); 
-        se3 
+        let w_r_cam0 = self.rot * self.r_imu_cam0.transpose();
+        let w_t_cam0 = self.rot * self.t_cam0_imu + self.p;
+        let mut se3 = Matrix4d::zeros();
+        se3.fixed_view_mut::<3, 3>(0, 0).copy_from(&w_r_cam0);
+        se3.fixed_view_mut::<3, 1>(0, 3).copy_from(&w_t_cam0);
+        se3
     }
 
     pub fn initialize_q(&mut self) {
@@ -150,11 +150,11 @@ impl StateServer {
         // // in the order (w, i, j, k)
         // let q = na::Quaternion::new(w, xyz[(0, 0)], xyz[(1, 0)], xyz[(2, 0)]);
         // let q = na::UnitQuaternion::from_quaternion(q);
-        // // from IMU to world 
+        // // from IMU to world
         // self.rot = q.to_rotation_matrix().transpose().into();
 
-        let q = Vector4d::new(w, xyz[(0, 0)], xyz[(1, 0)], xyz[(2, 0)]); 
-        self.rot = to_rotation_matrix(q).transpose(); 
+        let q = Vector4d::new(w, xyz[(0, 0)], xyz[(1, 0)], xyz[(2, 0)]);
+        self.rot = to_rotation_matrix(q).transpose();
     }
 
     /// ref stereo msckf processModel
@@ -377,9 +377,15 @@ impl StateServer {
         camera_frame_indices
     }
 
+    /// Assume velocity measurement is zero 
+    /// alternatively, can assume angular velocity and linear acc are zero, eg 
     /// ref <https://docs.openvins.com/update-zerovelocity.html>
     pub fn update_zero_velocity(&mut self) {
-        unimplemented!()
+        let mut jacobian_x = Matrixd::zeros(3, STATE_LEN + 6 * self.camera_states.len());
+        // residual is z - predicted value 
+        let mut residual = -self.v;
+        jacobian_x.fixed_view_mut::<3,3>(3, 0).copy_from(&Matrix3d::identity());
+        self.kf_update(&jacobian_x, &residual); 
     }
 
     pub fn update(&mut self, tracks: &[Track]) {
@@ -395,10 +401,12 @@ impl StateServer {
                 match camera_frame_indices.binary_search(&point.frame_number) {
                     Ok(frame_index) => {
                         normalized_coordinates.push(point.normalized_coordinates);
-                        let camera_idx = camera_frame_indices[frame_index]; 
+                        let camera_idx = camera_frame_indices[frame_index];
                         camera_poses.push(&self.camera_states.get(&camera_idx).unwrap());
                     }
-                    Err(_) => {continue;}
+                    Err(_) => {
+                        continue;
+                    }
                 }
             }
 
@@ -414,7 +422,7 @@ impl StateServer {
                     .or_insert(position);
 
                 // update step
-                let mut camera_indices = Vec::new(); 
+                let mut camera_indices = Vec::new();
                 let jacobian_row_size = 4 * camera_poses.len();
                 let mut jacobian_x =
                     Matrixd::zeros(jacobian_row_size, STATE_LEN + 6 * self.camera_states.len());
@@ -425,7 +433,7 @@ impl StateServer {
                     .enumerate()
                     .zip(camera_poses.iter())
                 {
-                    camera_indices.push(pose.id); 
+                    camera_indices.push(pose.id);
                     // Convert the feature position from the world frame to camera frame
                     let stereo_poses = pose.convert_to_stereo_poses_vec();
                     let w_trans_left_cam = &stereo_poses[0];
@@ -463,13 +471,15 @@ impl StateServer {
                     dz_dpc1[(2, 2)] = -p_c1[0] / (p_c1[2].powi(2));
                     dz_dpc1[(3, 1)] = 1. / p_c1[2];
                     dz_dpc1[(3, 2)] = -p_c1[1] / (p_c1[2].powi(2));
-                    let dpc1_dxc = -temp_mat.clone() * self.trans_cam0_cam1 * odot_operator(&uline_l0);
+                    let dpc1_dxc =
+                        -temp_mat.clone() * self.trans_cam0_cam1 * odot_operator(&uline_l0);
 
                     let dpc0_dpg = left_cam_trans_w.orientation;
                     let dpc1_dpg = right_cam_trans_w.orientation;
 
                     //shape (4, 6)
-                    let jacobian_x_feature = dz_dpc0.clone() * dpc0_dxc + dz_dpc1.clone() * dpc1_dxc;
+                    let jacobian_x_feature =
+                        dz_dpc0.clone() * dpc0_dxc + dz_dpc1.clone() * dpc1_dxc;
                     //shape (4, 3)
                     let jacobian_f_feature = dz_dpc0 * dpc0_dpg + dz_dpc1 * dpc1_dpg;
 
@@ -502,9 +512,9 @@ impl StateServer {
                 // let svd = na::linalg::SVD::new(jacobian_f.clone(), true, true);
                 let svd = LapackSVD::new(jacobian_f);
                 if svd.is_none() {
-                    continue; 
+                    continue;
                 }
-                let svd = svd.unwrap(); 
+                let svd = svd.unwrap();
 
                 // U matrix
                 let u_mat = svd.u;
@@ -512,76 +522,85 @@ impl StateServer {
                 let jacobian_x = a_mat.transpose() * jacobian_x;
                 let residual = a_mat.transpose() * residual;
 
-                // perform update step
-                let p_mat = self.state_cov.clone();
-                let jacobian_x_transpose = jacobian_x.transpose();
-                let nrows = jacobian_x.nrows(); 
-                let s_mat = jacobian_x.clone() * p_mat.clone() * jacobian_x_transpose 
-                    + self.observation_noise
-                        * Matrixd::identity(nrows, nrows);
-                let tolerance = 1e-3;
-                let k_mat = na::linalg::SVD::new(s_mat, true, true)
-                    .solve(&(jacobian_x.clone() * p_mat), tolerance)
-                    .unwrap()
-                    .transpose();
-
-                let delta_x = k_mat.clone() * residual;
-                // update the imu state
-                self.rot = self.rot * so3_exp(&Vector3d::new(delta_x[0], delta_x[1], delta_x[2]));
-                self.v += Vector3d::new(delta_x[3], delta_x[4], delta_x[5]);
-                self.p += Vector3d::new(delta_x[6], delta_x[7], delta_x[8]);
-                self.bg += Vector3d::new(delta_x[9], delta_x[10], delta_x[11]);
-                self.ba += Vector3d::new(delta_x[12], delta_x[13], delta_x[14]);
-
-                // update the extrinsics
-                let delta_i_trans_c =
-                    se3_exp(&Vector6d::new(delta_x[15], delta_x[16], delta_x[17], delta_x[18], delta_x[19], delta_x[20]));
-                // need to update P first using old R
-                let mut i_r_c = self.r_imu_cam0.transpose();
-                let i_p_c = self.t_cam0_imu;
-                self.t_cam0_imu = i_r_c
-                    * Vector3d::new(
-                        delta_i_trans_c[(0, 3)],
-                        delta_i_trans_c[(1, 3)],
-                        delta_i_trans_c[(2, 3)],
-                    )
-                    + i_p_c;
-                self.t_cam0_imu = i_p_c;
-                // update R
-                i_r_c = i_r_c * delta_i_trans_c.fixed_view::<3, 3>(0, 0);
-                self.r_imu_cam0 = i_r_c.transpose();
-
-                // Update the camera states
-                for (index, camera_index) in camera_indices.iter().enumerate() {
-                    let delta_camera = na::Vector6::new(
-                        delta_x[STATE_LEN + index * 6],
-                        delta_x[STATE_LEN + index * 6 + 1],
-                        delta_x[STATE_LEN + index * 6 + 2],
-                        delta_x[STATE_LEN + index * 6 + 3],
-                        delta_x[STATE_LEN + index * 6 + 4],
-                        delta_x[STATE_LEN + index * 6 + 5],
-                    );
-                    let delta_w_trans_cam = se3_exp(&delta_camera);
-                    let camera_state = self.camera_states.get(camera_index).unwrap().clone();
-                    let orientation = camera_state.orientation;
-                    let position = camera_state.position;
-                    let camera_state = self.camera_states.get_mut(camera_index).unwrap(); 
-                    camera_state.position = orientation
-                        * Vector3d::new(
-                            delta_w_trans_cam[(0, 3)],
-                            delta_w_trans_cam[(1, 3)],
-                            delta_w_trans_cam[(2, 3)],
-                        )
-                        + position;
-                    camera_state.orientation =
-                        orientation * delta_w_trans_cam.fixed_view::<3, 3>(0, 0);
-                }
-
-                // Update state covariance
-                let i_kh_mat = Matrixd::identity(k_mat.nrows(), k_mat.nrows()) - k_mat * jacobian_x;
-                let state_cov = self.state_cov.clone(); 
-                self.state_cov = i_kh_mat * state_cov; 
+                self.kf_update(&jacobian_x, &residual); 
             }
         }
     }
+
+    fn kf_update(&mut self, jacobian_x: &Matrixd, residual: &Vectord) {
+        // perform update step
+        let p_mat = self.state_cov.clone();
+        let jacobian_x_transpose = jacobian_x.transpose();
+        let nrows = jacobian_x.nrows();
+        let s_mat = jacobian_x.clone() * p_mat.clone() * jacobian_x_transpose
+            + self.observation_noise * Matrixd::identity(nrows, nrows);
+        let tolerance = 1e-3;
+        let k_mat = na::linalg::SVD::new(s_mat, true, true)
+            .solve(&(jacobian_x.clone() * p_mat), tolerance)
+            .unwrap()
+            .transpose();
+
+        let delta_x = k_mat.clone() * residual;
+        // update the imu state
+        self.rot = self.rot * so3_exp(&Vector3d::new(delta_x[0], delta_x[1], delta_x[2]));
+        self.v += Vector3d::new(delta_x[3], delta_x[4], delta_x[5]);
+        self.p += Vector3d::new(delta_x[6], delta_x[7], delta_x[8]);
+        self.bg += Vector3d::new(delta_x[9], delta_x[10], delta_x[11]);
+        self.ba += Vector3d::new(delta_x[12], delta_x[13], delta_x[14]);
+
+        // update the extrinsics
+        let delta_i_trans_c = se3_exp(&Vector6d::new(
+            delta_x[15],
+            delta_x[16],
+            delta_x[17],
+            delta_x[18],
+            delta_x[19],
+            delta_x[20],
+        ));
+        // need to update P first using old R
+        let mut i_r_c = self.r_imu_cam0.transpose();
+        let i_p_c = self.t_cam0_imu;
+        self.t_cam0_imu = i_r_c
+            * Vector3d::new(
+                delta_i_trans_c[(0, 3)],
+                delta_i_trans_c[(1, 3)],
+                delta_i_trans_c[(2, 3)],
+            )
+            + i_p_c;
+        self.t_cam0_imu = i_p_c;
+        // update R
+        i_r_c = i_r_c * delta_i_trans_c.fixed_view::<3, 3>(0, 0);
+        self.r_imu_cam0 = i_r_c.transpose();
+
+        // Update the camera states
+        for (index, camera_index) in camera_indices.iter().enumerate() {
+            let delta_camera = na::Vector6::new(
+                delta_x[STATE_LEN + index * 6],
+                delta_x[STATE_LEN + index * 6 + 1],
+                delta_x[STATE_LEN + index * 6 + 2],
+                delta_x[STATE_LEN + index * 6 + 3],
+                delta_x[STATE_LEN + index * 6 + 4],
+                delta_x[STATE_LEN + index * 6 + 5],
+            );
+            let delta_w_trans_cam = se3_exp(&delta_camera);
+            let camera_state = self.camera_states.get(camera_index).unwrap().clone();
+            let orientation = camera_state.orientation;
+            let position = camera_state.position;
+            let camera_state = self.camera_states.get_mut(camera_index).unwrap();
+            camera_state.position = orientation
+                * Vector3d::new(
+                    delta_w_trans_cam[(0, 3)],
+                    delta_w_trans_cam[(1, 3)],
+                    delta_w_trans_cam[(2, 3)],
+                )
+                + position;
+            camera_state.orientation =
+                orientation * delta_w_trans_cam.fixed_view::<3, 3>(0, 0);
+        }
+
+        // Update state covariance
+        let i_kh_mat = Matrixd::identity(k_mat.nrows(), k_mat.nrows()) - k_mat * jacobian_x;
+        let state_cov = self.state_cov.clone();
+        self.state_cov = i_kh_mat * state_cov;
+    } 
 }
