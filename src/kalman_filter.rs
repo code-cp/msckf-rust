@@ -12,6 +12,7 @@ use crate::config::*;
 use crate::feature::{triangulate, Track};
 use crate::math::*;
 use crate::my_types::*;
+use crate::stationary::*; 
 
 static STATE_LEN: usize = 21;
 
@@ -51,6 +52,7 @@ pub struct StateServer {
     pub state_id: usize,
     pub feature_map: HashMap<usize, Vector3d>,
     observation_noise: f64,
+    pub stationary: Stationary, 
 }
 
 impl StateServer {
@@ -98,6 +100,7 @@ impl StateServer {
             state_id: 0,
             feature_map: HashMap::new(),
             observation_noise,
+            stationary: Stationary::new(), 
         }
     }
 
@@ -372,6 +375,11 @@ impl StateServer {
         let camera_frame_indices: Vec<usize> =
             self.camera_states.keys().copied().collect::<Vec<usize>>();
         camera_frame_indices
+    }
+
+    /// ref <https://docs.openvins.com/update-zerovelocity.html>
+    pub fn update_zero_velocity(&mut self) {
+        unimplemented!()
     }
 
     pub fn update(&mut self, tracks: &[Track]) {

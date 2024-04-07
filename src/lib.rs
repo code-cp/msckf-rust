@@ -15,3 +15,4 @@ pub mod optical_flow;
 pub mod frame; 
 pub mod pyramid; 
 pub mod visualization; 
+pub mod stationary; 

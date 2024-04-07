@@ -16,7 +16,6 @@ pub struct Tracker {
     pub tracks: Vec<Track>,
     max_tracks: usize,
     next_id: TrackId,
-    step: usize,
     pub features0: Vec<Feature>,
     pub features1: Vec<Feature>,
     pub features2: Vec<Feature>,
@@ -31,7 +30,6 @@ impl Tracker {
             tracks: vec![],
             max_tracks,
             next_id: TrackId(0),
-            step: 0,
             features0: vec![],
             features1: vec![],
             features2: vec![],
@@ -53,7 +51,7 @@ impl Tracker {
             self.features1.clear();
 
             for track in &self.tracks {
-                if track.last_seen + 1 == self.step {
+                if track.last_seen + 1 == frame_number {
                     self.features1.push(Feature {
                         point: track.points.iter().last().unwrap().coordinates[0],
                         id: track.id,
@@ -94,44 +92,40 @@ impl Tracker {
                 [&self.features1, &self.features2],
                 [&cameras[0], &cameras[1]],
                 false,
-                self.step,
                 frame_number,
             );
-
-            let min_distance = 5.0;
-            sparsify_tracks(&mut self.tracks, min_distance);
-
-            assert!(self.features2.len() <= self.max_tracks);
-            let required_features_count = self.max_tracks - self.features2.len();
-
-            self.detector.process(
-                &frame1.pyramid_frames[0].image,
-                &mut self.features0,
-                required_features_count,
-                &mut self.next_id,
-            );
-
-            self.optical_flow.process(
-                OpticalFlowKind::LeftCurrentToRightCurrentDetection,
-                &frame1.pyramid_frames[0],
-                &frame1.pyramid_frames[1],
-                &[&cameras[0], &cameras[1]],
-                &self.features0,
-                &mut self.features1,
-                &mut self.features2,
-            );
-
-            update_tracks(
-                &mut self.tracks,
-                [&self.features1, &self.features2],
-                [&cameras[0], &cameras[1]],
-                true,
-                self.step,
-                frame_number,
-            );
-
-            self.step += 1;
         }
+
+        let min_distance = 5.0;
+        sparsify_tracks(&mut self.tracks, min_distance);
+
+        assert!(self.features2.len() <= self.max_tracks);
+        let required_features_count = self.max_tracks - self.features2.len();
+
+        self.detector.process(
+            &frame1.pyramid_frames[0].image,
+            &mut self.features0,
+            required_features_count,
+            &mut self.next_id,
+        );
+
+        self.optical_flow.process(
+            OpticalFlowKind::LeftCurrentToRightCurrentDetection,
+            &frame1.pyramid_frames[0],
+            &frame1.pyramid_frames[1],
+            &[&cameras[0], &cameras[1]],
+            &self.features0,
+            &mut self.features1,
+            &mut self.features2,
+        );
+
+        update_tracks(
+            &mut self.tracks,
+            [&self.features1, &self.features2],
+            [&cameras[0], &cameras[1]],
+            true,
+            frame_number,
+        );
     }
 }
 
@@ -178,7 +172,6 @@ fn update_tracks(
     features: [&[Feature]; 2],
     cameras: [&Camera; 2],
     new_tracks: bool,
-    step: usize,
     frame_number: usize,
 ) {
     let mut update_track = |features: [Feature; 2]| {
@@ -196,7 +189,7 @@ fn update_tracks(
             tracks.push(Track::new(
                 features,
                 normalized_coordinates,
-                step,
+                frame_number,
                 frame_number,
             ));
         } else {
@@ -208,7 +201,7 @@ fn update_tracks(
                         normalized_coordinates,
                         frame_number,
                     });
-                    track.last_seen = step;
+                    track.last_seen = frame_number;
                     break;
                 }
             }
@@ -228,7 +221,7 @@ fn update_tracks(
     // TODO avoid iteration
     let mut i = 0;
     while i < tracks.len() {
-        if tracks[i].last_seen == step {
+        if tracks[i].last_seen == frame_number {
             i += 1;
             continue;
         }

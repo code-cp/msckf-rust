@@ -1,17 +1,10 @@
 use anyhow::{anyhow, bail, Context as AnyhowContext, Result};
 use log::{debug, error, info, warn, LevelFilter};
-use ndarray as nd;
-use nalgebra as na; 
 use rerun::{RecordingStream, RecordingStreamBuilder};
 use std::collections::VecDeque;
 
-use tracing::instrument;
 use tracing::Span;
-use tracing::{span, Level};
 use tracing_indicatif::span_ext::IndicatifSpanExt;
-use tracing_indicatif::IndicatifLayer;
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::util::SubscriberInitExt;
 
 use crate::camera::*;
 use crate::dataset::*;
@@ -136,6 +129,11 @@ impl VIO {
         let frame1 = self.frames.back().clone().unwrap();
         self.tracker
             .process(frame0, frame1, &self.cameras, self.frame_number);
+
+        // check whether robot is static 
+        if self.state_server.stationary.is_static(&self.tracker.tracks) {
+            self.state_server.update_zero_velocity(); 
+        }
 
         // update step 
         self.state_server.update(&self.tracker.tracks); 

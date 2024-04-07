@@ -1,4 +1,4 @@
-use crate::camera::{self, CameraState};
+use crate::camera::CameraState;
 use crate::my_types::*;
 
 #[derive(Clone, Copy, Debug)]
