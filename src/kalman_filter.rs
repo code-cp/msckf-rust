@@ -63,6 +63,12 @@ pub struct StateServer {
     first_pose_gt: Matrix4d, 
 }
 
+fn set_diagonal(x: &mut Matrixd, start: usize, len: usize, value: f64) {
+    for i in start..(start + len) {
+        x[(i, i)] = value.powi(2);
+    }
+};
+
 impl StateServer {
     pub fn new(extrinsics: &Extrinsics, first_pose_gt: &Matrix4d) -> Self {
         let config = CONFIG.get().unwrap();
@@ -126,19 +132,24 @@ impl StateServer {
         se3
     }
 
+    /// The initial covariance of orientation and position can be
+    /// set to 0. But for velocity, bias and extrinsic parameters, 
+    /// there should be nontrivial uncertainty.
+    pub fn initialize_state_cov(&mut self) {
+        set_diagonal(&mut self.state_cov, 3, 3, 0.25);
+        set_diagonal(&mut self.state_cov, 9, 3, 0.01);
+        set_diagonal(&mut self.state_cov, 12, 3, 0.01);
+        set_diagonal(&mut self.state_cov, 15, 3, 3.0462e-4);
+        set_diagonal(&mut self.state_cov, 18, 3, 2.5e-5);
+    }
+
     pub fn initialize_q(&mut self) {
         let config = CONFIG.get().unwrap();
 
-        let set_diagonal = |x: &mut Matrixd, start: usize, len: usize, value: f64| {
-            for i in start..(start + len) {
-                x[(i, i)] = value.powi(2);
-            }
-        };
-
-        set_diagonal(&mut self.q_mat, 0, 3, config.gyro_var);
-        set_diagonal(&mut self.q_mat, 3, 3, config.acc_var);
-        set_diagonal(&mut self.q_mat, 9, 3, config.bias_gyro_var);
-        set_diagonal(&mut self.q_mat, 12, 3, config.bias_acc_var);
+        set_diagonal(&mut self.q_mat, 0, 3, config.gyro_std);
+        set_diagonal(&mut self.q_mat, 3, 3, config.acc_std);
+        set_diagonal(&mut self.q_mat, 9, 3, config.bias_gyro_std);
+        set_diagonal(&mut self.q_mat, 12, 3, config.bias_acc_std);
     }
 
     /// Initialize orientation based on the first accelometer sample.
@@ -182,6 +193,8 @@ impl StateServer {
                     self.initialize_orientation(acc);
                 }
             }
+            
+            self.initialize_state_cov(); 
             self.initialize_q();
             self.is_initialized = true;
         }

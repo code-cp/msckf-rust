@@ -15,17 +15,17 @@ pub struct Config {
     #[clap(long, default_value = "20")]
     pub window_size: usize, 
 
+    #[clap(long, default_value = "5e-2")]
+    pub acc_std: f64,
+
+    #[clap(long, default_value = "5e-3")]
+    pub gyro_std: f64,
+
+    #[clap(long, default_value = "1e-3")]
+    pub bias_gyro_std: f64,
+
     #[clap(long, default_value = "1e-2")]
-    pub acc_var: f64,
-
-    #[clap(long, default_value = "1e-5")]
-    pub gyro_var: f64,
-
-    #[clap(long, default_value = "1e-6")]
-    pub bias_gyro_var: f64,
-
-    #[clap(long, default_value = "1e-4")]
-    pub bias_acc_var: f64,
+    pub bias_acc_std: f64,
 }
 
 
