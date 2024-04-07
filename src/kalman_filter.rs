@@ -218,26 +218,27 @@ impl StateServer {
         self.p = new_p;
 
         let f_mat = self.construct_f_mat(dt, &acc, &gyro);
-        let imu_state_cov = self.state_cov.fixed_view::<21, 21>(0, 0).clone();
+        let imu_state_cov = self.state_cov.view((0, 0), (STATE_LEN, STATE_LEN)).clone();
         let temp_block = f_mat.clone() * imu_state_cov * f_mat.clone().transpose();
-        self.state_cov.fixed_view_mut::<21, 21>(0, 0).copy_from(
+        self.state_cov.view_mut((0, 0), (21, 21)).copy_from(
             &(temp_block + f_mat.clone() * self.q_mat.clone() * f_mat.clone().transpose() * dt),
         );
+
         if self.camera_states.len() > 0 {
             let cov_slice = f_mat.clone()
                 * self
                     .state_cov
-                    .view((0, 21), (21, self.state_cov.ncols() - 21));
+                    .view((0, STATE_LEN), (STATE_LEN, self.state_cov.ncols() - STATE_LEN));
             self.state_cov
-                .view_mut((0, 21), (21, self.state_cov.ncols() - 21))
+                .view_mut((0, STATE_LEN), (STATE_LEN, self.state_cov.ncols() - STATE_LEN))
                 .copy_from(&cov_slice);
 
             let cov_slice = self
                 .state_cov
-                .view((21, 0), (self.state_cov.nrows() - 21, 21))
+                .view((STATE_LEN, 0), (self.state_cov.nrows() - STATE_LEN, STATE_LEN))
                 * f_mat.transpose();
             self.state_cov
-                .view_mut((21, 0), (self.state_cov.nrows() - 21, 21))
+                .view_mut((STATE_LEN, 0), (self.state_cov.nrows() - STATE_LEN, STATE_LEN))
                 .copy_from(&cov_slice);
         }
     }
@@ -652,7 +653,7 @@ impl StateServer {
         let i_kh_mat = Matrixd::identity(k_mat.nrows(), k_mat.nrows()) - k_mat * jacobian_x;
         let state_cov = self.state_cov.clone();
         let state_cov = i_kh_mat * state_cov;
-         
+
         // Fix the covariance to be symmetric
         self.state_cov = (state_cov + state_cov.transpose()) / 2.0; 
 
