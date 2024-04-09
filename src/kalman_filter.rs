@@ -5,7 +5,6 @@ use rand::seq::SliceRandom;
 use rand_xoshiro::rand_core::SeedableRng;
 use rand_xoshiro::Xoshiro256PlusPlus;
 use std::collections::{BTreeMap, HashMap};
-use std::mem;
 
 use crate::camera::CameraState;
 use crate::config::*;
@@ -67,7 +66,7 @@ fn set_diagonal(x: &mut Matrixd, start: usize, len: usize, value: f64) {
     for i in start..(start + len) {
         x[(i, i)] = value.powi(2);
     }
-};
+}
 
 impl StateServer {
     pub fn new(extrinsics: &Extrinsics, first_pose_gt: &Matrix4d) -> Self {
@@ -427,15 +426,23 @@ impl StateServer {
     }
 
     pub fn update_pose(&mut self, pose: &Matrix4d) {
-        let mut jacobian_x = Matrixd::zeros(3, STATE_LEN + 6 * self.camera_states.len());
+        let mut jacobian_x = Matrixd::zeros(6, STATE_LEN + 6 * self.camera_states.len());
         
-        // residual is z - predicted value 
+        // residual is z - expected value 
         let mut residual = Vectord::zeros(0);
-        residual.resize_vertically_mut(3, 0.);
+        residual.resize_vertically_mut(6, 0.);
+
         let position_measurement = pose.fixed_view::<3,1>(0,3);  
         residual.fixed_view_mut::<3, 1>(0, 0).copy_from(&(position_measurement - self.p));
 
+        let orientation_measurement = pose.fixed_view::<3,3>(0,0); 
+        let orientation_residual = self.rot.transpose() * orientation_measurement; 
+        let orientation_residual = rotation_matrix_to_angle_axis(&orientation_residual); 
+        residual.fixed_view_mut::<3,1>(3, 0).copy_from(&orientation_residual); 
+
         jacobian_x.fixed_view_mut::<3, 3>(0, 6).copy_from(&Matrix3d::identity());
+        jacobian_x.fixed_view_mut::<3, 3>(3, 0).copy_from(&Matrix3d::identity());
+
         let _ = self.kf_update(&jacobian_x.into(), &residual.into());
     }
 
@@ -606,15 +613,14 @@ impl StateServer {
 
     fn kf_update(&mut self, jacobian_x: &Matrixd, residual: &Vectord) -> Vectord {
         // QR decomposition
-        let mut jacobian_x = jacobian_x; 
-        let mut residual = residual;    
+        let mut jacobian_x = jacobian_x.to_owned(); 
+        let mut residual = residual.to_owned();    
 
         if jacobian_x.nrows() > jacobian_x.ncols() {
             let qr = LapackQR::new(jacobian_x);
-            if let Some(qr) = qr {
-                jacobian_x = qr.r; 
-                residual = qr.q.transpose() * mem::take(residual); 
-            }
+            jacobian_x = qr.r(); 
+            let q: Matrixd = qr.q(); 
+            residual = q.transpose() * residual; 
         }
 
         // perform update step
@@ -668,7 +674,7 @@ impl StateServer {
         let state_cov = i_kh_mat * state_cov;
 
         // Fix the covariance to be symmetric
-        self.state_cov = (state_cov + state_cov.transpose()) / 2.0; 
+        self.state_cov = (state_cov.clone() + state_cov.transpose()) / 2.0; 
 
         return delta_x;
     } 
