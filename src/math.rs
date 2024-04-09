@@ -152,11 +152,11 @@ pub fn rotation_matrix_to_angle_axis(rotation: &Matrix3d) -> Vector3d {
     let axis = Vector3d::new(rotation[(2, 1)] - rotation[(1, 2)],
                             rotation[(0, 2)] - rotation[(2, 0)],
                             rotation[(1, 0)] - rotation[(0, 1)]);
-    let axis = axis.normalize(); 
+    let axis = if axis.norm() > 1e-2 {axis.normalize()} else {axis}; 
 
     // Compute the angle
     let angle_cos = (rotation[(0, 0)] + rotation[(1, 1)] + rotation[(2, 2)] - 1.0) / 2.0;
-    let angle = angle_cos.acos(); // Angle in radians
+    let angle = angle_cos.min(1.0).max(-1.0).acos(); // Angle in radians
 
     axis*angle
 }
