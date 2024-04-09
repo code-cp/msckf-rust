@@ -56,10 +56,10 @@ pub struct StateServer {
     camera_states: BTreeMap<usize, CameraState>,
     pub state_id: usize,
     pub feature_map: HashMap<usize, Vector3d>,
-    observation_noise: f64,
     pub stationary: Stationary,
     initialization_method: InitializationMethod, 
     first_pose_gt: Matrix4d, 
+    pub current_pose_gt: Option<Matrix4d>, 
 }
 
 fn set_diagonal(x: &mut Matrixd, start: usize, len: usize, value: f64) {
@@ -90,8 +90,6 @@ impl StateServer {
         let r_cam0_cam1 = trans_cam0_cam1.fixed_view::<3, 3>(0, 0);
         let t_cam0_cam1 = trans_cam0_cam1.fixed_view::<3, 1>(0, 3);
 
-        let observation_noise: f64 = (0.035_f64).powi(2);
-
         let initialization_method = InitializationMethod::FromGroundtruth; 
 
         Self {
@@ -114,10 +112,10 @@ impl StateServer {
             camera_states: BTreeMap::new(),
             state_id: 0,
             feature_map: HashMap::new(),
-            observation_noise,
             stationary: Stationary::new(),
             initialization_method, 
             first_pose_gt: first_pose_gt.to_owned(), 
+            current_pose_gt: None, 
         }
     }
 
@@ -422,10 +420,14 @@ impl StateServer {
         residual.fixed_view_mut::<3, 1>(0, 0).copy_from(&(-self.v));
 
         jacobian_x.fixed_view_mut::<3, 3>(0, 3).copy_from(&Matrix3d::identity());
-        let _ = self.kf_update(&jacobian_x.into(), &residual.into(), self.observation_noise); 
+
+        let noise: f64 = (0.001_f64).powi(2);
+        let _ = self.kf_update(&jacobian_x.into(), &residual.into(), noise); 
     }
 
     pub fn update_pose(&mut self, pose: &Matrix4d) {
+        self.current_pose_gt = Some(pose.to_owned()); 
+
         let mut jacobian_x = Matrixd::zeros(6, STATE_LEN + 6 * self.camera_states.len());
         
         // residual is z - expected value 
@@ -582,7 +584,8 @@ impl StateServer {
                 let jacobian_x = a_mat.transpose() * jacobian_x;
                 let residual = a_mat.transpose() * residual;
 
-                let delta_x = self.kf_update(&jacobian_x.into(), &residual.into()); 
+                let observation_noise: f64 = (0.035_f64).powi(2);
+                let delta_x = self.kf_update(&jacobian_x.into(), &residual.into(), observation_noise); 
 
                 // Update the camera states
                 for (index, camera_index) in camera_indices.iter().enumerate() {

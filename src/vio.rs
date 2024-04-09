@@ -169,13 +169,13 @@ impl VIO {
             &rerun::Points3D::new(self.state_server.get_feature_map_for_visualization().iter()),
         )?;
 
-        // show camera pose
+        // show estimated camera pose
         let w_tr_c = self.state_server.get_camera_pose();
         let translation = w_tr_c.fixed_view::<3,1>(0,3); 
         let rot = w_tr_c.fixed_view::<3,3>(0,0); 
         let quat = matrix_to_quaternion(&rot.into()); 
         self.recorder.log(
-            "world/camera",
+            "world/camera_est",
             &rerun::Transform3D::from_translation_rotation(rerun::Vec3D::new(
                 translation.x as f32, 
                 translation.y as f32, 
@@ -184,6 +184,23 @@ impl VIO {
                 rerun::Quaternion::from_wxyz([quat.coords[3] as f32, quat.coords[0] as f32, quat.coords[1] as f32, quat.coords[2] as f32])
             )),
         )?;
+
+        // show gt camera pose
+        if let Some(w_tr_c) = self.state_server.current_pose_gt {
+            let translation = w_tr_c.fixed_view::<3,1>(0,3); 
+            let rot = w_tr_c.fixed_view::<3,3>(0,0); 
+            let quat = matrix_to_quaternion(&rot.into()); 
+            self.recorder.log(
+                "world/camera_gt",
+                &rerun::Transform3D::from_translation_rotation(rerun::Vec3D::new(
+                    translation.x as f32, 
+                    translation.y as f32, 
+                    translation.z as f32, 
+                ), rerun::Rotation3D::Quaternion(
+                    rerun::Quaternion::from_wxyz([quat.coords[3] as f32, quat.coords[0] as f32, quat.coords[1] as f32, quat.coords[2] as f32])
+                )),
+            )?;
+        }
 
         Ok(())
     }
