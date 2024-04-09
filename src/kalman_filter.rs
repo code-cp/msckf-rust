@@ -448,6 +448,7 @@ impl StateServer {
 
     pub fn update_feature(&mut self, tracks: &[Track]) {
         let feature_update_number = 50;
+
         let mut rng = Xoshiro256PlusPlus::seed_from_u64(0);
 
         let camera_frame_indices = self.get_camera_indices();
@@ -629,11 +630,13 @@ impl StateServer {
         let nrows = jacobian_x.nrows();
         let s_mat = jacobian_x.clone() * p_mat.clone() * jacobian_x_transpose
             + self.observation_noise * Matrixd::identity(nrows, nrows);
-        let tolerance = 1e-3;
-        let k_mat = na::linalg::SVD::new(s_mat, true, true)
-            .solve(&(jacobian_x.clone() * p_mat), tolerance)
-            .unwrap()
-            .transpose();
+        
+        // let tolerance = 1e-3;
+        // let k_mat = na::linalg::SVD::new(s_mat, true, true)
+        //     .solve(&(jacobian_x.clone() * p_mat), tolerance)
+        //     .unwrap()
+        //     .transpose();
+        let k_mat = p_mat * jacobian_x.clone().transpose() * s_mat.try_inverse().unwrap(); 
 
         let delta_x = k_mat.clone() * residual;
 

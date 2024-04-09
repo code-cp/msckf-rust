@@ -24,6 +24,7 @@ pub struct Tracker {
 impl Tracker {
     pub fn new(cam0_to_cam1: Matrix4d) -> Result<Self> {
         let max_tracks = 400;
+
         Ok(Self {
             detector: Detector::new(),
             optical_flow: OpticalFlow::new(cam0_to_cam1)?,
