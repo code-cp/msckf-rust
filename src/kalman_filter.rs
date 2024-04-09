@@ -422,7 +422,7 @@ impl StateServer {
         residual.fixed_view_mut::<3, 1>(0, 0).copy_from(&(-self.v));
 
         jacobian_x.fixed_view_mut::<3, 3>(0, 3).copy_from(&Matrix3d::identity());
-        let _ = self.kf_update(&jacobian_x.into(), &residual.into()); 
+        let _ = self.kf_update(&jacobian_x.into(), &residual.into(), self.observation_noise); 
     }
 
     pub fn update_pose(&mut self, pose: &Matrix4d) {
@@ -443,7 +443,8 @@ impl StateServer {
         jacobian_x.fixed_view_mut::<3, 3>(0, 6).copy_from(&Matrix3d::identity());
         jacobian_x.fixed_view_mut::<3, 3>(3, 0).copy_from(&Matrix3d::identity());
 
-        let _ = self.kf_update(&jacobian_x.into(), &residual.into());
+        let noise = 1e-5; 
+        let _ = self.kf_update(&jacobian_x.into(), &residual.into(), noise);
     }
 
     pub fn update_feature(&mut self, tracks: &[Track]) {
@@ -612,7 +613,7 @@ impl StateServer {
         }
     }
 
-    fn kf_update(&mut self, jacobian_x: &Matrixd, residual: &Vectord) -> Vectord {
+    fn kf_update(&mut self, jacobian_x: &Matrixd, residual: &Vectord, noise: f64) -> Vectord {
         // QR decomposition
         let mut jacobian_x = jacobian_x.to_owned(); 
         let mut residual = residual.to_owned();    
@@ -629,7 +630,7 @@ impl StateServer {
         let jacobian_x_transpose = jacobian_x.transpose();
         let nrows = jacobian_x.nrows();
         let s_mat = jacobian_x.clone() * p_mat.clone() * jacobian_x_transpose
-            + self.observation_noise * Matrixd::identity(nrows, nrows);
+            + noise * Matrixd::identity(nrows, nrows);
         
         // let tolerance = 1e-3;
         // let k_mat = na::linalg::SVD::new(s_mat, true, true)
