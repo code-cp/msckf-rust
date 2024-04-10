@@ -22,7 +22,6 @@ pub struct VIO {
     last_gyro: Option<(f64, Vector3d)>,
     last_acc: Option<(f64, Vector3d)>,
     recorder: RecordingStream,
-    orientation_initialized: bool,
     state_server: StateServer,
     frames: VecDeque<Frame>,
     cameras: Vec<Camera>,
@@ -45,7 +44,6 @@ impl VIO {
             last_acc: None,
             last_gyro: None,
             recorder,
-            orientation_initialized: false,
             state_server,
             frames: VecDeque::new(),
             cameras,
@@ -66,7 +64,7 @@ impl VIO {
         // println!("Got sensor data at time: {:?}", data.time);
         match data.sensor {
             InputSensor::Frame(ref frame) => {
-                if !self.orientation_initialized {
+                if !self.state_server.is_initialized {
                     return Ok(false);
                 }
 
@@ -83,22 +81,21 @@ impl VIO {
             }
             InputSensor::Accelerometer(acc) => {
                 self.last_acc = Some((data.time, acc));
+                
+                // Very basic sample synchronization that only aims to cover the case that
+                // the gyroscope and accelerometer samples are already paired one-to-one in
+                // the input data, but it's not known if the accelerometer or gyroscope
+                // sample comes first in the stream.
+                if let (Some((time_gyro, gyro)), Some((time_acc, acc))) = (self.last_gyro, self.last_acc) {
+                    if time_acc >= time_gyro {
+                        self.process_imu(time_gyro, gyro, acc);
+                        // allow reuse of acc data
+                        self.last_gyro = None;
+                    }
+                }
             }
             InputSensor::Pose(pose) => {
                 self.process_pose(&pose);
-            }
-        }
-
-        // Very basic sample synchronization that only aims to cover the case that
-        // the gyroscope and accelerometer samples are already paired one-to-one in
-        // the input data, but it's not known if the accelerometer or gyroscope
-        // sample comes first in the stream.
-        if let (Some((time_gyro, gyro)), Some((time_acc, acc))) = (self.last_gyro, self.last_acc) {
-            if time_acc >= time_gyro {
-                self.process_imu(time_gyro, gyro, acc);
-                self.orientation_initialized = true;
-                // allow reuse of acc data
-                self.last_gyro = None;
             }
         }
 
@@ -173,7 +170,7 @@ impl VIO {
         let w_tr_c = self.state_server.get_camera_pose();
         let translation = w_tr_c.fixed_view::<3,1>(0,3); 
         let rot = w_tr_c.fixed_view::<3,3>(0,0); 
-        let quat = matrix_to_quaternion(&rot.into()); 
+        let quat = matrix_to_quaternion(&rot.into()).normalize(); 
         self.recorder.log(
             "world/camera_est",
             &rerun::Transform3D::from_translation_rotation(rerun::Vec3D::new(
@@ -189,7 +186,7 @@ impl VIO {
         if let Some(w_tr_c) = self.state_server.current_pose_gt {
             let translation = w_tr_c.fixed_view::<3,1>(0,3); 
             let rot = w_tr_c.fixed_view::<3,3>(0,0); 
-            let quat = matrix_to_quaternion(&rot.into()); 
+            let quat = matrix_to_quaternion(&rot.into()).normalize(); 
             self.recorder.log(
                 "world/camera_gt",
                 &rerun::Transform3D::from_translation_rotation(rerun::Vec3D::new(

@@ -53,7 +53,7 @@ pub struct StateServer {
     gravity: Vector3d,
     window_size: usize,
     last_time: Option<f64>,
-    is_initialized: bool,
+    pub is_initialized: bool,
     camera_states: BTreeMap<usize, CameraState>,
     pub state_id: usize,
     pub feature_map: HashMap<usize, Vector3d>,
