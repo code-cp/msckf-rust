@@ -143,7 +143,7 @@ pub fn odot_operator(x: &Vector4d) -> Matrixd {
         .copy_from(&Matrix3d::identity());
     result
         .view_mut((0, 3), (3, 3))
-        .copy_from(&skew(&x));
+        .copy_from(&(-skew(&x)));
     result
 }
 
