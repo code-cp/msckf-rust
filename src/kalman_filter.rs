@@ -29,17 +29,17 @@ enum InitializationMethod {
 #[derive(Debug)]
 pub struct StateServer {
     /// position
-    p: Vector3d,
+    pub p: Vector3d,
     /// velocity
-    v: Vector3d,
+    pub v: Vector3d,
     /// rotation matrix
-    rot: Matrix3d,
+    pub rot: Matrix3d,
     /// gyro bias  
     bg: Vector3d,
     /// acc bias
     ba: Vector3d,
     /// transformation between IMU and left camera frame
-    trans_imu_cam0: Matrix4d, 
+    pub trans_imu_cam0: Matrix4d, 
     r_imu_cam0: Matrix3d,
     t_cam0_imu: Vector3d,
     /// Takes a vector from the cam0 frame to the cam1 frame
@@ -428,10 +428,6 @@ impl StateServer {
     }
 
     pub fn update_pose(&mut self, pose: &Matrix4d) {
-        // pose is imu to world 
-        let camera_pose = pose * self.trans_imu_cam0.try_inverse().unwrap(); 
-        self.current_pose_gt = Some(camera_pose.to_owned()); 
-
         let mut jacobian_x = Matrixd::zeros(6, STATE_LEN + 6 * self.camera_states.len());
         
         // residual is z - expected value 
@@ -603,6 +599,7 @@ impl StateServer {
         if let (Some(jacobian_x), Some(residual)) = (jacobian_x_all, residual_all) {
             let observation_noise: f64 = (0.035_f64).powi(2);
             let delta_x = self.kf_update(&jacobian_x.into(), &residual.into(), observation_noise); 
+            println!("delta_x {delta_x}"); 
         } else {
             return;
         }

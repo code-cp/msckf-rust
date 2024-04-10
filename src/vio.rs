@@ -107,8 +107,12 @@ impl VIO {
     }
 
     pub fn process_pose(&mut self, pose: &Matrix4d) {
+        // pose is imu to world 
+        let camera_pose = pose * self.state_server.trans_imu_cam0.try_inverse().unwrap(); 
+        self.state_server.current_pose_gt = Some(camera_pose.to_owned()); 
+
         // update step 
-        self.state_server.update_pose(pose); 
+        // self.state_server.update_pose(pose); 
     }
 
     pub fn process_frame(&mut self, frame: &InputFrame) -> Result<()> {
