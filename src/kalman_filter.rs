@@ -597,7 +597,8 @@ impl StateServer {
         }
 
         if let (Some(jacobian_x), Some(residual)) = (jacobian_x_all, residual_all) {
-            let observation_noise: f64 = (0.035_f64).powi(2);
+            // let observation_noise: f64 = (0.035_f64).powi(2);
+            let observation_noise: f64 = (1e-2_f64).powi(2);
             let delta_x = self.kf_update(&jacobian_x.into(), &residual.into(), observation_noise); 
             println!("delta_x {delta_x}"); 
         } else {

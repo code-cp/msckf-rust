@@ -288,7 +288,7 @@ pub fn triangulate(
 
     let final_position = Vector3d::new(
         solution[0] / solution[2], 
-        solution[0] / solution[2], 
+        solution[1] / solution[2], 
         1.0 / solution[2], 
     ); 
 
