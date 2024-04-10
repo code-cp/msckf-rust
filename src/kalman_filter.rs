@@ -39,6 +39,7 @@ pub struct StateServer {
     /// acc bias
     ba: Vector3d,
     /// transformation between IMU and left camera frame
+    trans_imu_cam0: Matrix4d, 
     r_imu_cam0: Matrix3d,
     t_cam0_imu: Vector3d,
     /// Takes a vector from the cam0 frame to the cam1 frame
@@ -98,6 +99,7 @@ impl StateServer {
             rot: Matrix3d::identity(),
             bg: Vector3d::zeros(),
             ba: Vector3d::zeros(),
+            trans_imu_cam0, 
             r_imu_cam0: r_imu_cam0.into(),
             t_cam0_imu: t_cam0_imu.into(),
             r_cam0_cam1: r_cam0_cam1.into(),
@@ -426,7 +428,9 @@ impl StateServer {
     }
 
     pub fn update_pose(&mut self, pose: &Matrix4d) {
-        self.current_pose_gt = Some(pose.to_owned()); 
+        // pose is imu to world 
+        let camera_pose = pose * self.trans_imu_cam0.try_inverse().unwrap(); 
+        self.current_pose_gt = Some(camera_pose.to_owned()); 
 
         let mut jacobian_x = Matrixd::zeros(6, STATE_LEN + 6 * self.camera_states.len());
         
