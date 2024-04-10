@@ -224,3 +224,21 @@ pub fn matrix_to_quaternion(matrix: &Matrix3d) -> na::Quaternion<f64> {
         )
     }
 }
+
+pub fn hstack_mat(mat_a: &Matrixd, mat_b: &Matrixd) -> Matrixd {
+    let num_rows_c = mat_a.nrows() + mat_b.nrows();
+    let num_cols_c = mat_a.ncols();
+    let mut c = Matrixd::zeros(num_rows_c, num_cols_c);
+    c.view_mut((0, 0), (mat_a.nrows(), num_cols_c)).copy_from(&mat_a); 
+    c.view_mut((mat_a.nrows(), 0), (mat_b.nrows(), num_cols_c)).copy_from(&mat_b); 
+    c
+}
+
+pub fn hstack_vec(mat_a: &Vectord, mat_b: &Vectord) -> Vectord {
+    let num_rows_c = mat_a.nrows() + mat_b.nrows();
+    let num_cols_c = mat_a.ncols();
+    let mut c = Vectord::zeros(num_rows_c);
+    c.view_mut((0, 0), (mat_a.nrows(), num_cols_c)).copy_from(&mat_a); 
+    c.view_mut((mat_a.nrows(), 0), (mat_b.nrows(), num_cols_c)).copy_from(&mat_b); 
+    c
+}
