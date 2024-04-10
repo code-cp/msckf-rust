@@ -48,6 +48,13 @@ impl CameraPose {
             position, 
         }
     }
+
+    pub fn get_transformation_matrix(&self) -> Matrix4d {
+        let mut pose = Matrix4d::identity();
+        pose.fixed_view_mut::<3,3>(0,0).copy_from(&self.orientation); 
+        pose.fixed_view_mut::<3,1>(0,3).copy_from(&self.position); 
+        pose  
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -90,5 +97,12 @@ impl CameraState {
             position: right_position, 
         }; 
         vec![left_pose, right_pose]
+    }
+
+    pub fn get_transformation_matrix(&self) -> Matrix4d {
+        let mut pose = Matrix4d::identity();
+        pose.fixed_view_mut::<3,3>(0,0).copy_from(&self.orientation); 
+        pose.fixed_view_mut::<3,1>(0,3).copy_from(&self.position); 
+        pose  
     }
 }

@@ -5,6 +5,10 @@
 cargo run --release > output.txt 
 ```
 
+## todo 
+
+- check whether can embed image into doc 
+
 ## ref 
 
 - https://github.com/pekkaran/violet
