@@ -589,9 +589,9 @@ impl StateServer {
                 let jacobian_x = a_mat.transpose() * jacobian_x;
                 let residual = a_mat.transpose() * residual;
             
-                if let (Some(jacobian), Some(residual)) = (jacobian_x_all.as_mut(), residual_all.as_mut()) {
-                    *jacobian = hstack_mat(&jacobian, &jacobian_x);
-                    *residual = hstack_vec(&residual, &residual);
+                if let (Some(jacobian_x_all), Some(residual_all)) = (jacobian_x_all.as_mut(), residual_all.as_mut()) {
+                    *jacobian_x_all = hstack_mat(&jacobian_x_all, &jacobian_x);
+                    *residual_all = hstack_vec(&residual_all, &residual);
                 } else {
                     jacobian_x_all = Some(jacobian_x); 
                     residual_all = Some(residual); 
