@@ -525,9 +525,9 @@ impl StateServer {
                     let p_c0_jacobi = p_c0;
                     let mut dz_dpc0 = Matrixd::zeros(4, 3);
                     dz_dpc0[(0, 0)] = 1. / p_c0[2];
-                    dz_dpc0[(0, 2)] = -p_c0[0] / (p_c1[2].powi(2));
+                    dz_dpc0[(0, 2)] = -p_c0[0] / (p_c0[2].powi(2));
                     dz_dpc0[(1, 1)] = 1. / p_c0[2];
-                    dz_dpc0[(1, 2)] = -p_c0[1] / (p_c1[2].powi(2));
+                    dz_dpc0[(1, 2)] = -p_c0[1] / (p_c0[2].powi(2));
                     let uline_l0 =
                         Vector4d::new(p_c0_jacobi[0], p_c0_jacobi[1], p_c0_jacobi[2], 1.);
                     let dpc0_dxc = -temp_mat.clone() * odot_operator(&uline_l0);
