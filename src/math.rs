@@ -123,6 +123,7 @@ pub fn se3_exp(v: &Vector6d) -> Matrix4d {
     let mut se3 = Matrix4d::zeros(); 
     se3.fixed_view_mut::<3,3>(0,0).copy_from(&exp_phi_skew);
     se3.fixed_view_mut::<3,1>(0,3).copy_from(&(j*rho)); 
+    se3[(3,3)] = 1.; 
 
     se3
 }
