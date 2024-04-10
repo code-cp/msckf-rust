@@ -603,32 +603,6 @@ impl StateServer {
         if let (Some(jacobian_x), Some(residual)) = (jacobian_x_all, residual_all) {
             let observation_noise: f64 = (0.035_f64).powi(2);
             let delta_x = self.kf_update(&jacobian_x.into(), &residual.into(), observation_noise); 
-    
-            // Update the camera states
-            for (index, camera_index) in camera_frame_indices.iter().enumerate() {
-                let delta_camera = na::Vector6::new(
-                    delta_x[STATE_LEN + index * 6],
-                    delta_x[STATE_LEN + index * 6 + 1],
-                    delta_x[STATE_LEN + index * 6 + 2],
-                    delta_x[STATE_LEN + index * 6 + 3],
-                    delta_x[STATE_LEN + index * 6 + 4],
-                    delta_x[STATE_LEN + index * 6 + 5],
-                );
-                let delta_w_trans_cam = se3_exp(&delta_camera);
-                let camera_state = self.camera_states.get(camera_index).unwrap().clone();
-                let orientation = camera_state.orientation;
-                let position = camera_state.position;
-                let camera_state = self.camera_states.get_mut(camera_index).unwrap();
-                camera_state.position = orientation
-                    * Vector3d::new(
-                        delta_w_trans_cam[(0, 3)],
-                        delta_w_trans_cam[(1, 3)],
-                        delta_w_trans_cam[(2, 3)],
-                    )
-                    + position;
-                camera_state.orientation =
-                    orientation * delta_w_trans_cam.fixed_view::<3, 3>(0, 0);
-            }
         } else {
             return;
         }
@@ -692,6 +666,33 @@ impl StateServer {
         // update R via right perturbation 
         i_r_c = i_r_c * delta_i_trans_c.fixed_view::<3, 3>(0, 0);
         self.r_imu_cam0 = i_r_c.transpose();
+
+        // Update the camera states
+        let camera_frame_indices = self.get_camera_indices();
+        for (index, camera_index) in camera_frame_indices.iter().enumerate() {
+            let delta_camera = na::Vector6::new(
+                delta_x[STATE_LEN + index * 6],
+                delta_x[STATE_LEN + index * 6 + 1],
+                delta_x[STATE_LEN + index * 6 + 2],
+                delta_x[STATE_LEN + index * 6 + 3],
+                delta_x[STATE_LEN + index * 6 + 4],
+                delta_x[STATE_LEN + index * 6 + 5],
+            );
+            let delta_w_trans_cam = se3_exp(&delta_camera);
+            let camera_state = self.camera_states.get(camera_index).unwrap().clone();
+            let orientation = camera_state.orientation;
+            let position = camera_state.position;
+            let camera_state = self.camera_states.get_mut(camera_index).unwrap();
+            camera_state.position = orientation
+                * Vector3d::new(
+                    delta_w_trans_cam[(0, 3)],
+                    delta_w_trans_cam[(1, 3)],
+                    delta_w_trans_cam[(2, 3)],
+                )
+                + position;
+            camera_state.orientation =
+                orientation * delta_w_trans_cam.fixed_view::<3, 3>(0, 0);
+        }
 
         // Update state covariance
         let i_kh_mat = Matrixd::identity(k_mat.nrows(), k_mat.nrows()) - k_mat * jacobian_x;
