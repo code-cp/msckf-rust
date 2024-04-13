@@ -123,7 +123,7 @@ macro_rules! convert_xyz_to_xyz1 {
 /// The ith measurement of the feature j in ci frame
 fn get_cost(ci_trans_c0: &Matrix4d, position: &Vector3d, z: &Vector2d) -> f64 {
 
-    // Compute hi1, hi2, and hi3 as Equation (37) in stereo msckf paper 
+    // Compute hi1, hi2, and hi3 as Equation (37) in https://intra.ece.ucr.edu/~mourikis/papers/MourikisRoumeliotis-ICRA07.pdf 
     let h = get_rotation_from_trans!(ci_trans_c0) * convert_xy_to_xy1!(position) + position[2] * get_position_from_trans!(ci_trans_c0); 
 
     if h[2] < 1e-4 {
