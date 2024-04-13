@@ -1,13 +1,13 @@
 ## about 
 
+![img](./assets/demo.png)
+
+- rust implementation of msckf 
+
 - how to run 
 ```
 cargo run --release > output.txt 
 ```
-
-## todo 
-
-- check whether can embed image into doc 
 
 ## ref 
 
